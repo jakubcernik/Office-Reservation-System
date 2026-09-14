@@ -1,0 +1,3 @@
+Potřeboval bych po tobě vypracovat projekt který má být vyloženě vibecoded. Je to projekt do předmětu SWI. Cýlem le vytvořit rezervační systém. Rozhodli jsme se jako téma implementovat systém který známe z práce. Systém pro rezervaci míst k sezení v open officu a zároveň rezervace parkovacích míst. Specifický rule bude že parkovací místo lze rezervovat pouze na den na který má ten stejný uživatel zarezervované místo i k sezení. Zde je co by mělo být výstupem (nejlépe formou .md):
+
+jasně vymezený rezervační systém, Project Frame, jedna review smyčka, jeden skutečně provedený engineering spike, evidence a definovaný walking skeleton
