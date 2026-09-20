@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}My reservations | Office Reservation System{% endblock %}
+
+{% block content %}
+<h1>My reservations</h1>
+
+<section class="card">
+    {% if reservations %}
+        <ul class="reservation-list">
+            {% for reservation in reservations %}
+                <li>
+                    <div>
+                        <strong>{{ reservation.resource.name }}</strong>
+                        <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
+                    </div>
+                    <div class="muted">
+                        {{ reservation.resource.get_resource_type_display }} • {{ reservation.reservation_date }}
+                    </div>
+                    <div class="actions">
+                        {% if reservation.status == 'DRAFT' %}
+                            <form method="post" action="{% url 'reservations:confirm_reservation' reservation.pk %}" class="inline-form">
+                                {% csrf_token %}
+                                <button type="submit">Confirm</button>
+                            </form>
+                        {% endif %}
+                        {% if reservation.status == 'CONFIRMED' %}
+                            <form method="post" action="{% url 'reservations:cancel_reservation' reservation.pk %}" class="inline-form">
+                                {% csrf_token %}
+                                <button type="submit">Cancel</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>You do not have any reservations yet.</p>
+    {% endif %}
+</section>
+{% endblock %}
+

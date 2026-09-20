@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block title %}Availability | Office Reservation System{% endblock %}
+
+{% block content %}
+<h1>Availability</h1>
+
+<section class="card">
+    <form method="get" class="inline-form">
+        {{ date_form.reservation_date.label_tag }}
+        {{ date_form.reservation_date }}
+        <button type="submit">Show</button>
+    </form>
+</section>
+
+<section class="grid">
+    <article class="card">
+        <h2>Available resources for {{ selected_date }}</h2>
+        {% if available_resources %}
+            <ul class="resource-list">
+                {% for item in available_resources %}
+                    <li>
+                        <strong>{{ item.resource.get_resource_type_display }}:</strong>
+                        {{ item.resource.name }}
+                        {% if item.resource.location %}<span class="muted">({{ item.resource.location }})</span>{% endif %}
+                        <form method="post" action="{% url 'reservations:create_draft' %}" class="inline-form">
+                            {% csrf_token %}
+                            {{ item.draft_form.resource_id }}
+                            {{ item.draft_form.reservation_date }}
+                            <button type="submit">Create draft</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No active resources are available for this date.</p>
+        {% endif %}
+    </article>
+
+    <article class="card">
+        <h2>Your reservations for {{ selected_date }}</h2>
+        {% if user_reservations %}
+            <ul class="reservation-list">
+                {% for reservation in user_reservations %}
+                    <li>
+                        <strong>{{ reservation.resource.name }}</strong>
+                        <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
+                        <div class="muted">{{ reservation.resource.get_resource_type_display }} • {{ reservation.reservation_date }}</div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>You do not have reservations for this date.</p>
+        {% endif %}
+    </article>
+</section>
+{% endblock %}
+

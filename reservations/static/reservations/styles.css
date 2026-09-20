@@ -1,0 +1,159 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f8fb;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --danger: #b91c1c;
+  --success: #15803d;
+  --border: #dbe3ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar a {
+  color: var(--accent);
+  text-decoration: none;
+  margin-right: 0.75rem;
+}
+
+.container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.card.narrow {
+  max-width: 420px;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-top: 1rem;
+}
+
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field {
+  margin-bottom: 0.75rem;
+}
+
+button {
+  border: 0;
+  background: var(--accent);
+  color: white;
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.92;
+}
+
+.resource-list,
+.reservation-list,
+.messages {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.resource-list li,
+.reservation-list li {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.resource-list li:last-child,
+.reservation-list li:last-child {
+  border-bottom: 0;
+}
+
+.actions {
+  margin-top: 0.5rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: #e5e7eb;
+}
+
+.badge.confirmed {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.badge.draft {
+  background: #dbeafe;
+  color: var(--accent);
+}
+
+.badge.cancelled {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.messages {
+  margin-bottom: 1rem;
+}
+
+.messages li {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 0.5rem;
+}
+
+.messages li.success {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.messages li.error {
+  background: #fee2e2;
+  color: var(--danger);
+}
+

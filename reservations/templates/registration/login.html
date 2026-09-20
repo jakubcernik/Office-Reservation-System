@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block title %}Login | Office Reservation System{% endblock %}
+
+{% block content %}
+<section class="card narrow">
+    <h1>Login</h1>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">{{ form.username.label_tag }} {{ form.username }}</div>
+        <div class="field">{{ form.password.label_tag }} {{ form.password }}</div>
+        <button type="submit">Sign in</button>
+    </form>
+    <p class="muted">New here? <a href="{% url 'register' %}">Create an account</a>.</p>
+</section>
+{% endblock %}
+
