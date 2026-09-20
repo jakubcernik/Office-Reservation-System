@@ -17,7 +17,7 @@ Systém slouží zaměstnancům firmy k plynulému a organizovanému plánován�
 - User
 
 ## Core operations
-- Create reservation: Založí novou rezervaci do košíku.
+- Create reservation: Založí novou rezervaci.
 
 - Confirm / approve reservation: Zvaliduje pravidla a rezervaci závazně potvrdí.
 
