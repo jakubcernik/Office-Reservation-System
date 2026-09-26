@@ -137,6 +137,26 @@ button:hover {
   color: var(--danger);
 }
 
+.badge.pending_approval {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.badge.rejected {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.badge.expired {
+  background: #e5e7eb;
+  color: var(--muted);
+}
+
+.badge.approval-required {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
 .messages {
   margin-bottom: 1rem;
 }

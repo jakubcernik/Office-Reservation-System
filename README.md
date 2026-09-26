@@ -7,8 +7,9 @@ A first-version Django application for office desks and parking spot reservation
 - Django project with SQLite storage, or PostgreSQL (Supabase) via `DATABASE_URL`
 - Login/logout via Django authentication
 - Availability page for desks and parking spots
-- Draft, confirm, and cancel reservation flows
+- Create, confirm, and cancel reservation flows (reserving takes one action)
 - Django admin for resource and reservation management
+- Approval flow for resources that need an office manager's decision
 - Core business rule: parking confirmation requires a confirmed desk reservation for the same date
 
 ## CP1 walking skeleton (C02 definition)
@@ -157,6 +158,16 @@ To check which database is used right now:
 ```powershell
 python manage.py shell -c "from django.db import connection; print(connection.vendor, connection.settings_dict['HOST'])"
 ```
+
+## Reserving and approvals
+
+Reserving takes **one action**: pick a date on the availability page and press **Reserve**. The reservation is created and confirmed in the same step, so the resource is taken immediately.
+
+Resources with `requires_approval` set (Django admin, **off by default**) are the exception: reserving such a resource creates a request that waits for an office manager. Requests do **not** block the resource, and a request nobody decides expires at the end of the day the reservation is for.
+
+Managers are staff accounts or members of the `Office Manager` group, and they decide on the **Approvals** page. The demo data contains two such resources: desk `VED-01` and parking spot `P-VIP`.
+
+A reservation can still be created as a draft (service layer or Django admin) and confirmed later — the four basic operations stay distinct, the interface just does not ask for the extra step. A failed check leaves nothing behind: no half-finished reservation and no orphaned draft.
 
 ## Run tests
 

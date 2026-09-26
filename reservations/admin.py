@@ -5,8 +5,8 @@ from .models import Reservation, Resource
 
 @admin.register(Resource)
 class ResourceAdmin(admin.ModelAdmin):
-    list_display = ("name", "resource_type", "location", "is_active")
-    list_filter = ("resource_type", "is_active")
+    list_display = ("name", "resource_type", "location", "is_active", "requires_approval")
+    list_filter = ("resource_type", "is_active", "requires_approval")
     search_fields = ("name", "location")
     ordering = ("resource_type", "name")
 

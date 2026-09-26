@@ -16,6 +16,9 @@
         {% if user.is_authenticated %}
             <a href="{% url 'reservations:availability' %}">Availability</a>
             <a href="{% url 'reservations:my_reservations' %}">My reservations</a>
+            {% if can_approve_requests %}
+                <a href="{% url 'reservations:approvals' %}">Approvals</a>
+            {% endif %}
             <form action="{% url 'logout' %}" method="post" class="inline-form">
                 {% csrf_token %}
                 <button type="submit">Logout</button>

@@ -23,11 +23,14 @@
                         <strong>{{ item.resource.get_resource_type_display }}:</strong>
                         {{ item.resource.name }}
                         {% if item.resource.location %}<span class="muted">({{ item.resource.location }})</span>{% endif %}
-                        <form method="post" action="{% url 'reservations:create_draft' %}" class="inline-form">
+                        {% if item.resource.requires_approval %}
+                            <span class="badge approval-required">Approval needed</span>
+                        {% endif %}
+                        <form method="post" action="{% url 'reservations:create_reservation' %}" class="inline-form">
                             {% csrf_token %}
-                            {{ item.draft_form.resource_id }}
-                            {{ item.draft_form.reservation_date }}
-                            <button type="submit">Create draft</button>
+                            {{ item.reservation_form.resource_id }}
+                            {{ item.reservation_form.reservation_date }}
+                            <button type="submit">Reserve</button>
                         </form>
                     </li>
                 {% endfor %}
@@ -46,6 +49,25 @@
                         <strong>{{ reservation.resource.name }}</strong>
                         <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
                         <div class="muted">{{ reservation.resource.get_resource_type_display }} • {{ reservation.reservation_date }}</div>
+                        <div class="actions">
+                            {% if reservation.status == 'DRAFT' %}
+                                <form method="post" action="{% url 'reservations:confirm_reservation' reservation.pk %}" class="inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit">{% if reservation.resource.requires_approval %}Request approval{% else %}Confirm{% endif %}</button>
+                                </form>
+                            {% endif %}
+                            {% if reservation.status == 'PENDING_APPROVAL' %}
+                                <span class="muted">Waiting for an office manager.</span>
+                            {% endif %}
+                            {% if reservation.status == 'DRAFT' or reservation.status == 'PENDING_APPROVAL' or reservation.status == 'CONFIRMED' %}
+                                <form method="post" action="{% url 'reservations:cancel_reservation' reservation.pk %}" class="inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit">{% if reservation.status == 'PENDING_APPROVAL' %}Withdraw request{% else %}Cancel{% endif %}</button>
+                                </form>
+                            {% endif %}
+                        </div>
                     </li>
                 {% endfor %}
             </ul>

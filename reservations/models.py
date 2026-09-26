@@ -12,6 +12,10 @@ class Resource(models.Model):
     resource_type = models.CharField(max_length=20, choices=ResourceType.choices)
     location = models.CharField(max_length=120, blank=True)
     is_active = models.BooleanField(default=True)
+    requires_approval = models.BooleanField(
+        default=False,
+        help_text="Reservations for this resource have to be approved by an office manager.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -25,7 +29,10 @@ class Resource(models.Model):
 class Reservation(models.Model):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
+        PENDING_APPROVAL = "PENDING_APPROVAL", "Waiting for approval"
         CONFIRMED = "CONFIRMED", "Confirmed"
+        REJECTED = "REJECTED", "Rejected"
+        EXPIRED = "EXPIRED", "Expired"
         CANCELLED = "CANCELLED", "Cancelled"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reservations")

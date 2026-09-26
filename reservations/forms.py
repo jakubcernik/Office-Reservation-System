@@ -14,7 +14,7 @@ class AvailabilityForm(forms.Form):
     )
 
 
-class DraftCreationForm(forms.Form):
+class ReservationCreationForm(forms.Form):
     resource_id = forms.IntegerField(widget=forms.HiddenInput)
     reservation_date = forms.DateField(widget=forms.HiddenInput)
 

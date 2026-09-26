@@ -24,10 +24,16 @@
                                 <button type="submit">Confirm</button>
                             </form>
                         {% endif %}
-                        {% if reservation.status == 'CONFIRMED' %}
+                        {% if reservation.status == 'DRAFT' and reservation.resource.requires_approval %}
+                            <span class="muted">Confirming sends this request to an office manager.</span>
+                        {% endif %}
+                        {% if reservation.status == 'PENDING_APPROVAL' %}
+                            <span class="muted">Waiting for an office manager.</span>
+                        {% endif %}
+                        {% if reservation.status == 'DRAFT' or reservation.status == 'PENDING_APPROVAL' or reservation.status == 'CONFIRMED' %}
                             <form method="post" action="{% url 'reservations:cancel_reservation' reservation.pk %}" class="inline-form">
                                 {% csrf_token %}
-                                <button type="submit">Cancel</button>
+                                <button type="submit">{% if reservation.status == 'PENDING_APPROVAL' %}Withdraw request{% else %}Cancel{% endif %}</button>
                             </form>
                         {% endif %}
                     </div>

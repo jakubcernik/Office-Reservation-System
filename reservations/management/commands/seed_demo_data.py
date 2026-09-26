@@ -7,6 +7,22 @@ from django.utils import timezone
 from reservations.models import Reservation, Resource
 from reservations.services import confirm_reservation, create_draft
 
+#: Demo resources that need an office manager's approval (change C02).
+#: Every other demo resource keeps the flag off, so the default behaviour of
+#: the application is unchanged and confirmations stay immediate.
+APPROVAL_RESOURCES = (
+    {
+        "name": "VED-01",
+        "resource_type": Resource.ResourceType.DESK,
+        "location": "Ředitelské křídlo",
+    },
+    {
+        "name": "P-VIP",
+        "resource_type": Resource.ResourceType.PARKING_SPOT,
+        "location": "Návštěvní vjezd",
+    },
+)
+
 
 class Command(BaseCommand):
     help = "Seed the database with demo office resources and optional sample reservations."
@@ -35,7 +51,7 @@ class Command(BaseCommand):
         force = options["force"]
         demo_resource_names = [f"A{index:02d}" for index in range(1, desks + 1)] + [
             f"P{index:02d}" for index in range(1, parking_spots + 1)
-        ]
+        ] + [spec["name"] for spec in APPROVAL_RESOURCES]
 
         if force:
             Reservation.objects.filter(resource__name__in=demo_resource_names).delete()
@@ -61,6 +77,18 @@ class Command(BaseCommand):
                     "resource_type": Resource.ResourceType.PARKING_SPOT,
                     "location": "Garage",
                     "is_active": True,
+                },
+            )
+            created_resources += int(created)
+
+        for spec in APPROVAL_RESOURCES:
+            _, created = Resource.objects.get_or_create(
+                name=spec["name"],
+                defaults={
+                    "resource_type": spec["resource_type"],
+                    "location": spec["location"],
+                    "is_active": True,
+                    "requires_approval": True,
                 },
             )
             created_resources += int(created)
