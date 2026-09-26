@@ -11,6 +11,63 @@ A first-version Django application for office desks and parking spot reservation
 - Django admin for resource and reservation management
 - Core business rule: parking confirmation requires a confirmed desk reservation for the same date
 
+## CP1 walking skeleton (C02 definition)
+
+This section defines one concrete end-to-end path that must be runnable after C03 (before C04).
+
+### Scope
+
+- Endpoint: `POST /reservations`
+- Flow: `validate -> persist -> return reservation ID -> automated check`
+- Goal: verify that one reservation can go through the full path from HTTP request to database row and back to HTTP response.
+
+### Request contract
+
+`POST /reservations`
+
+```json
+{
+  "resource_id": 1,
+  "reservation_date": "2026-09-21"
+}
+```
+
+### Validation (minimum for CP1)
+
+- user is authenticated
+- `resource_id` exists and is active
+- `reservation_date` is a valid date
+
+### Persistence (minimum for CP1)
+
+- create one reservation row in SQLite using Django ORM
+- initial status for CP1: `DRAFT`
+
+### Response contract
+
+- success status: `201 Created`
+- body includes created identifier:
+
+```json
+{
+  "reservation_id": 123
+}
+```
+
+### Automated check (must be runnable in C03)
+
+- one integration test sends `POST /reservations`
+- test asserts `201` response and `reservation_id` in JSON
+- test verifies the reservation row exists in DB with matching user/resource/date
+
+Suggested command:
+
+```powershell
+py manage.py test reservations.tests.WalkingSkeletonReservationCreateTests
+```
+
+Status in C02: this is the agreed, concrete walking skeleton definition. Full implementation is planned for C03.
+
 ## Local setup
 
 ### One-command scripts on Windows
