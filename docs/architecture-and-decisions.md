@@ -99,3 +99,22 @@ Only add more infrastructure when a concrete need appears:
 - Celery or another worker if notifications must be retried asynchronously.
 - SSO when the company identity provider is available.
 - A separate API when a mobile or external client is actually required.
+
+## Change record: PostgreSQL (Supabase) instead of SQLite
+
+The first version stored everything in a local SQLite file. The project now needs a database that is reachable from more than one machine, so the storage layer moved to PostgreSQL hosted on Supabase.
+
+How it was done, keeping the "no code change" promise:
+
+- Only `settings.py` changed. `models.py`, `services.py`, `views.py`, and `forms.py` are untouched, because the Django ORM and the existing migrations target PostgreSQL as well.
+- The database is selected by the `DATABASE_URL` environment variable (`.env`, git-ignored). No URL means the old local SQLite file, so a fresh checkout still runs without any cloud account.
+- Secrets stay out of the repository; `requirements.txt` gained `psycopg2-binary`, `dj-database-url`, and `python-dotenv`.
+
+Evidence: `manage.py migrate` was run first against a local PostgreSQL 18 instance and then against the Supabase project itself; all 19 migrations applied without modification in both cases.
+
+Consequences for the rules from the section above:
+
+- The business rule "confirmed reservations for the same resource must not overlap" is now enforced by a **partial unique index** (`unique_confirmed_resource_date`) instead of SQLite's partial index. The service-level check stays as a friendly error message; the constraint remains the last line of defence.
+- The stated upgrade trigger ("PostgreSQL for higher concurrency") is now met, so the concurrency model can be revisited next.
+- Tests keep running on SQLite locally, so `manage.py test` never touches the shared database.
+- Draft expiry, notifications, and the missing capacity numbers are still out of scope, exactly as decided above.

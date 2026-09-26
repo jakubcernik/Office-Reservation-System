@@ -4,7 +4,7 @@ A first-version Django application for office desks and parking spot reservation
 
 ## What is included
 
-- Django project with SQLite storage
+- Django project with SQLite storage, or PostgreSQL (Supabase) via `DATABASE_URL`
 - Login/logout via Django authentication
 - Availability page for desks and parking spots
 - Draft, confirm, and cancel reservation flows
@@ -42,6 +42,64 @@ python manage.py runserver
 ```
 
 Open `http://127.0.0.1:8000/` in your browser.
+
+## Database: SQLite or Supabase (PostgreSQL)
+
+The database is selected by the `DATABASE_URL` environment variable, which is read from the git-ignored `.env` file in the project root:
+
+| `DATABASE_URL` | Database used |
+| --- | --- |
+| not set | local `db.sqlite3` file |
+| set | the PostgreSQL database in that URL (for example Supabase) |
+
+Other variables in `.env`:
+
+| Variable | Meaning |
+| --- | --- |
+| `DJANGO_SECRET_KEY` | secret key of this machine |
+| `DJANGO_DEBUG` | `true` or `false` |
+| `DJANGO_ALLOWED_HOSTS` | comma separated host names |
+| `DJANGO_USE_SQLITE` | `true` forces the local SQLite file even when `DATABASE_URL` is set |
+
+A complete `.env` therefore looks like this (values are made up):
+
+```dotenv
+DJANGO_SECRET_KEY=django-insecure-change-me
+DJANGO_DEBUG=true
+DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+
+# Database. Comment this line out to fall back to the local db.sqlite3 file.
+DATABASE_URL=postgresql://postgres.abcdefghijklmnop:your-password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+
+DJANGO_USE_SQLITE=false
+```
+
+### Connecting to Supabase
+
+1. Create a project on [supabase.com](https://supabase.com) and keep the database password.
+2. Open **Project Settings -> Database -> Connection string -> URI**.
+3. Put that string into `.env` as `DATABASE_URL` and replace the password placeholder.
+4. Create the tables, the admin user, and optionally demo data:
+
+```powershell
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py seed_demo_data
+```
+
+Notes:
+
+- The dashboard placeholder is written as `[YOUR-PASSWORD]`. Replace the whole `[YOUR-PASSWORD]` part **including the square brackets** - the brackets are not part of the password.
+- A password with characters like `[`, `]`, `@`, `#`, `:` or `/` has to be percent-encoded inside the URL, for example `[` becomes `%5B`. A password of only letters and digits avoids the problem completely.
+- Prefer the **session pooler** string (host `*.pooler.supabase.com`, port `5432`). It works over IPv4. On the transaction pooler (port `6543`) PgBouncer cannot keep server-side cursors open; `settings.py` detects that and sets `DISABLE_SERVER_SIDE_CURSORS` for you.
+- Supabase requires TLS. `settings.py` adds `sslmode=require` for remote hosts, so the connection string does not need to carry it.
+- `python manage.py test` always runs on SQLite: the test runner creates and drops a throwaway database, which Supabase does not allow.
+
+To check which database is used right now:
+
+```powershell
+python manage.py shell -c "from django.db import connection; print(connection.vendor, connection.settings_dict['HOST'])"
+```
 
 ## Run tests
 
