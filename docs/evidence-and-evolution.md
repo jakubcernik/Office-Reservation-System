@@ -50,3 +50,37 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 **Architektonické drivery přenesené do C03:** notifikace jako skutečná externí závislost (rozšířila se na žádost, schválení, zamítnutí a vypršení); čas bez časovače (expirace se vyhodnocuje při čtení); BR-02 vynucené v aplikaci i v databázi; dvě role a potřeba jediného místa pro kontrolu oprávnění; nedokončený walking skeleton z CP1 (`POST /reservations`). Podrobněji v `docs/intent-and-change.md`.
 
 **Commit / tag aplikace:** commit „approval process v0.2 (C02 change)“, tag `v0.2`.
+
+---
+
+## C03 — Architecture Evidence
+
+**Baseline:** v0.2 (architektura je nad statechartem/požadavky v0.2). Aplikace navíc realizuje týmové rozhodnutí v0.3 (rezervace jedním krokem) — vedeno jako cross-view nález, ne opraveno.
+
+**Part A:** [`docs/architecture-and-decisions.md`](architecture-and-decisions.md), sekce „Part A — AS-IS: mapování scénáře Confirm Reservation" (A1–A9). Klíčové zjištění: `Reservation.status` mění jen `services.py` (views jen čtou), ale notifikace byla volaná inline uvnitř doménové služby.
+
+**Drivers:** D1 `BR-02` při souběhu; D2 odložené schválení přežívá původní request; D3 `Notification Service` může selhat; D4 jedno místo pro oprávnění; D5 expirace bez časovače.
+
+**Decision question:** Kde má být vlastněn odložený approval workflow — uvnitř stejného deployable, nebo v samostatném runtime prvku?
+
+**Alternatives:** A = stejný deployable (approval stav vlastní Reservation Management, expirace při čtení); B = samostatný Approval Worker / služba se schedulerem.
+
+**Scenario walkthrough:** scénář E3 (Confirm → `PENDING_APPROVAL` → konkurující `CONFIRMED` → schválení odmítnuto dle `BR-02` → failure notifikace spolknut). Obě varianty chování umí; liší se vlastnictvím odloženého stavu a runtime.
+
+**ADR:** ADR-01 — zvolena **Alternativa A** (jeden owner drží `BR-02` bez distribuovaného zámku, jeden runtime odpovídá AS-IS). Negativní důsledky: expirace až při čtení, žádný retry notifikací, approval zátěž v web procesu. Reopen: víc instancí / proaktivní expirace / SLA notifikací / oddělení runtime.
+
+**Views:** domain class (C1), context (G1), static architecture (G2), state ownership (G3), runtime/deployment (G4), design sequence (H1), focused design class (H2) — vše v [`docs/c03-architecture.md`](c03-architecture.md).
+
+**Cross-view issues found/resolved:** žádný tvrdý rozpor mezi diagramy; jediný nález je známá odchylka baseline v0.2 vs běžící v0.3.
+
+**AS-IS → TO-BE delta:** `KEEP` (vlastnictví stavu, approval stav, persistence, žádný worker); `CHANGE` (izolace notifikací + best-effort failure); `VERIFY` (směr závislostí views → services, kryto architektonickým testem).
+
+**Implementation changes:** nový `reservations/notifications.py` (Notification Integration, best-effort doručení); `services.py` volá notifikaci přes tento modul (chování rezervace beze změny); nový `reservations/tests_architecture.py`.
+
+**Behaviour verification:** `python manage.py test` — **47 testů, `OK`** (44 původních + 3 architektonické).
+
+**Architecture conformance rule + result:** RULE-1 „jen `reservations/services.py` mění `Reservation.status`" (+ RULE-2 „doručení notifikace definuje jen `notifications.py`") — `reservations/tests_architecture.py`, **OK**. Kontrola je netriviální: injektované `r.status = ...` i `.update(status=...)` odhalí.
+
+**Remaining uncertainty / risk:** expirace jen při čtení (na stav se dá zapomenout); notifikace bez retry; `DRAFT` v běžném UI toku není pozorovatelný (v0.3); kapacita zdrojů stále neznámá z C01.
+
+**Commit/tag:** *neprovedeno na pokyn týmu* — návrh zprávy: „C03 architecture: approval workflow ownership + notification isolation", tag `c03` (případně navázat na `v0.2`).

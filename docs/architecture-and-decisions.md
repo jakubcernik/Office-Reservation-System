@@ -118,3 +118,120 @@ Consequences for the rules from the section above:
 - The stated upgrade trigger ("PostgreSQL for higher concurrency") is now met, so the concurrency model can be revisited next.
 - Tests keep running on SQLite locally, so `manage.py test` never touches the shared database.
 - Draft expiry, notifications, and the missing capacity numbers are still out of scope, exactly as decided above.
+
+---
+
+# Part A — AS-IS: mapování scénáře Confirm Reservation
+
+Ověřený AS-IS podklad pro C03. Sledovaný scénář je jedna operace ze Specification Baseline v0.2 a jeho realizace v běžícím kódu.
+
+## A1. Scénář, který sledujeme
+
+| Položka | Hodnota |
+| --- | --- |
+| Scénář / operace | Confirm Reservation (OP-03), včetně větve, kde zdroj vyžaduje schválení |
+| Požadavky | REQ-03, REQ-04, REQ-05; pro approval větev REQ-07 |
+| Pravidla / invarianty | BR-02 (exkluzivita zdroje), BR-04 (parkování vyžaduje stůl), BR-05 (schvalované zdroje), BR-07 (schválení znovu ověřuje pravidla) |
+| Baseline | v0.2 ([`docs/intent-and-change.md`](intent-and-change.md)) |
+
+## A2. Hlavní průchod scénáře v kódu
+
+| Krok scénáře z C02 (OP-03) | Realizace v kódu | Doklad |
+| --- | --- | --- |
+| přijmout požadavek na potvrzení | `confirm_reservation_view` (POST `/reservations/<pk>/confirm/`) | `reservations/views.py:148` |
+| načíst Reservation | `get_object_or_404(Reservation.objects.select_related(...), pk=pk)`; služba pak znovu načte se zámkem řádku | `reservations/views.py:152`; `reservations/services.py:105` |
+| ověřit, že přechod je povolený | `if reservation.status != Reservation.Status.DRAFT: raise ReservationError` | `reservations/services.py:107` |
+| ověřit aktivnost zdroje | `if not reservation.resource.is_active: raise` | `reservations/services.py:110` |
+| ověřit BR-04 (parkování) | `user_has_confirmed_desk(...)` → `raise` | `reservations/services.py:113` |
+| vyhodnotit konflikt (BR-02) | `Reservation.objects.filter(resource=..., reservation_date=..., status=CONFIRMED).exclude(pk=...).exists()` | `reservations/services.py:117` |
+| změnit stav | `reservation.status = PENDING_APPROVAL` (zdroj vyžaduje schválení) nebo `= CONFIRMED` | `reservations/services.py:127`, `:132` |
+| uložit výsledek | `reservation.save(update_fields=["status", "updated_at"])` uvnitř `@transaction.atomic`; pojistka je DB index | `reservations/services.py:102`, `:128`, `:134`; `reservations/models.py:48` |
+| oznámit uživateli | `notify_reservation_event("confirmed" / "requested approval", reservation)` | `reservations/notifications.py` |
+
+## A3. Alternativní / chybová větev: konflikt existuje → odmítnout
+
+| Co říká v0.2 | Kde se podmínka zjistí | Kde se rozhodne výsledek | Co dostane volající |
+| --- | --- | --- | --- |
+| konflikt s existující `CONFIRMED` → odmítnuto, rezervace zůstává `DRAFT` | `Reservation.objects.filter(...).exclude(pk=...).exists()` — `reservations/services.py:117` | `raise ReservationError("The selected resource is already confirmed for that date.")` — `reservations/services.py:122` | view chytí `ReservationError` → `messages.error(str(exc))` a přesměruje — `reservations/views.py:162` |
+
+Druhá vrstva téhož pravidla: pokud by kontrola v aplikaci prosla a řádek se ukládal, částečný unikátní index `unique_confirmed_resource_date` vyhodí `IntegrityError`, který se přeloží na stejnou `ReservationError` (`reservations/services.py:135`; `reservations/models.py:48`).
+
+**Rozdíl specifikace ↔ implementace (nález):**
+
+| Specifikace (v0.2) | Implementace | Doklad |
+| --- | --- | --- |
+| Confirm je samostatný krok uživatele (`DRAFT → CONFIRMED`), `DRAFT` je pozorovatelný stav | Běžící UI dělá Create + Confirm jako **jednu akci** (`create_reservation`); `DRAFT` v běžném toku není vidět. Vrstva služeb i `DRAFT` pořád existují. | `reservations/views.py:76` (`create_reservation_view`), `reservations/services.py:80` (`create_reservation`); vysvětleno v [`docs/intent-and-change.md`](intent-and-change.md) „Baseline v0.3" |
+
+## A4. Hlavní části implementace, které scénář realizují
+
+| Část implementace | Typ / obsah | Role v tomto scénáři | Doklad |
+| --- | --- | --- | --- |
+| Reservation API | modul (Django function views) | přijme confirm command | `reservations/views.py` |
+| Reservation logic | doménová služba + agregát | rozhodne potvrzení a zapíše stav | `reservations/services.py`, `reservations/models.py` |
+| Policy / invariant | kontrola ve službě + DB constraint | vynutí BR-02 a BR-04 | `reservations/services.py:110`–`:122`, `reservations/models.py:48` |
+| Authorization | dekorátor + funkce oprávnění | ověří vlastníka / schvalovatele | `reservations/views.py:147`, `:153`; `reservations/services.py:35` |
+| Persistence | Django ORM | načte a uloží stav, zámek řádku | `reservations/services.py:105` |
+| Notification integration | modul | odešle oznámení (dnes log) | `reservations/notifications.py` |
+
+*Podbloky:* **Reservation API** = `confirm_reservation_view`, `create_reservation_view`. **Reservation logic** = `confirm_reservation`, `_apply_approval_decision`, `Reservation`. **Persistence** = Django ORM (`select_for_update`, `save`, `transaction.atomic`).
+
+## A5. Stav, změna stavu a jedno pravidlo
+
+**Stav**
+
+| Otázka | Odpověď | Doklad |
+| --- | --- | --- |
+| Kde je stav Reservation trvale uložen? | sloupec `status` tabulky `reservations_reservation` v relační DB vybrané přes `DATABASE_URL` (aktuálně PostgreSQL/Supabase; bez URL lokální SQLite) | `reservations/models.py:41`; `office_reservation_system/settings.py` (`DATABASE_URL`) |
+| Který kód provádí přechod použitý ve scénáři? | `services.confirm_reservation` (a pro approval `services._apply_approval_decision`) | `reservations/services.py:103`, `:176` |
+
+**Business pravidlo / invariant — BR-02**
+
+| Otázka | Odpověď | Doklad |
+| --- | --- | --- |
+| Kde se zjistí podmínka pravidla? | dotaz na existující `CONFIRMED` pro stejný zdroj a den | `reservations/services.py:117`, `:195` |
+| Kde se podle výsledku rozhodne? | `raise ReservationError(...)` | `reservations/services.py:122`, `:200` |
+| Kde se provede výsledná změna stavu? | při odmítnutí nikde; při úspěchu `save()` a kontrola indexem v DB | `reservations/services.py:134`; `reservations/models.py:48` |
+
+Stejné rozhodnutí dělají **dvě místa záměrně**: aplikační kontrola (přátelská chyba) a databázový částečný unikátní index (poslední linie obrany při souběhu).
+
+## A6. Relevantní závislosti
+
+| Závislost | Kde se napojuje na náš kód | Která část zná její technické API | Doklad |
+| --- | --- | --- | --- |
+| databáze | `settings.py` vybírá `DATABASE_URL`; modely a služby | Django ORM (`models.py`, `services.py`) | `office_reservation_system/settings.py` |
+| Notification Service | volá se při změně stavu | dnes jen `notifications.py` (`_send()` — log); reálné API by znal jen tento modul | `reservations/notifications.py` |
+| IdP | Django vestavěná autentizace (`login_required`) | Django `django.contrib.auth` — **interní**, ne externí služba | `reservations/views.py:4`, `settings.py` INSTALLED_APPS |
+
+## A7. AS-IS strukturální diagram
+
+```mermaid
+flowchart TB
+    subgraph APP["Application code"]
+        API["Reservation API<br/>(module)<br/>role: accepts confirm command"]
+        LOGIC["Reservation logic<br/>(module)<br/>role: decides confirmation, writes state"]
+        INTEG["Notification integration<br/>(module)<br/>role: delivers notification"]
+        PERS["Persistence<br/>(Django ORM)<br/>role: loads / saves state"]
+    end
+    DB[("Reservation DB<br/>(database, PostgreSQL)")]
+    NS(["Notification Service<br/>(external system; today log stub)")]
+
+    API -->|"confirm(id)"| LOGIC
+    LOGIC -->|"load / save Reservation"| PERS
+    LOGIC -->|"send notification"| INTEG
+    PERS -->|"read / write"| DB
+    INTEG -->|"send event"| NS
+```
+
+*Obsah bloků:* **Reservation API** = `confirm_reservation_view`, `create_reservation_view` (views.py). **Reservation logic** = `confirm_reservation`, `_apply_approval_decision` (services.py) + `Reservation` (models.py). **Persistence** = Django ORM. **Notification integration** = `notify_reservation_event` (notifications.py). Policy/invariant není samostatný blok, žije uvnitř Reservation logic + v DB indexu.
+
+## A8. Otázka pro další C03
+
+| Položka | Obsah |
+| --- | --- |
+| Otázka | Kde se má udělat **autoritativní** rozhodnutí o konfliktu, aby BR-02 platilo i při dvou souběžných confirm requestech? |
+| Doklad | kontrola `filter(...).exists()` (`services.py:118`) a `save()` (`services.py:133`) jsou dvě oddělené operace oddělené v čase; drží to až částečný unikátní index v DB (`models.py:48`) |
+| Proč je důležitá | REQ-04/BR-02: souběh nesmí vytvořit dvě potvrzené rezervace téhož zdroje a dne |
+
+## A9. Použití AI
+
+AI byla použita na navigaci v repozitáři a první verzi diagramu. Do tohoto výstupu jsou zapsaná pouze tvrzení ověřená v kódu (`reservations/views.py`, `services.py`, `models.py`, `notifications.py`) a v běžících testech (`python manage.py test`).

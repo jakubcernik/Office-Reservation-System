@@ -192,8 +192,11 @@ py manage.py seed_demo_data --demo-user jakub
 ## Main app modules
 
 - `reservations/models.py`
-- `reservations/services.py`
+- `reservations/services.py` — owns every `Reservation` lifecycle state change
+- `reservations/notifications.py` — notification integration boundary (best-effort delivery)
 - `reservations/views.py`
 - `reservations/forms.py`
 - `reservations/templates/`
 - `reservations/static/`
+
+Architecture rules from C03 are protected by `reservations/tests_architecture.py`; see [`docs/c03-architecture.md`](docs/c03-architecture.md).

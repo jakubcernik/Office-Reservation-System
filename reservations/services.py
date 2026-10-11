@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from .models import Reservation, Resource
+from .notifications import notify_reservation_event
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,6 @@ CANCELLABLE_STATUSES = (
 
 class ReservationError(Exception):
     """Raised when a reservation state change cannot be completed."""
-
-
-def notify_reservation_event(action: str, reservation: Reservation) -> None:
-    logger.info(
-        "%s reservation id=%s user=%s resource=%s date=%s status=%s",
-        action,
-        reservation.pk,
-        reservation.user_id,
-        reservation.resource_id,
-        reservation.reservation_date,
-        reservation.status,
-    )
 
 
 def available_resources_for_date(reservation_date) -> QuerySet[Resource]:
