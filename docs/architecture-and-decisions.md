@@ -55,7 +55,7 @@ Start with whole-day reservations. A reservation needs:
 - user
 - resource
 - date
-- status: `DRAFT`, `CONFIRMED`, or `CANCELLED`
+- status: `DRAFT`, `CONFIRMED`, or `CANCELLED`; the C02 change added `PENDING_APPROVAL`, `REJECTED`, and `EXPIRED` for resources that require approval
 
 Only active resources should be available for new reservations. Confirmed reservations for the same resource and date must not overlap. Add a conditional unique constraint for confirmed reservations and also check availability in the service function. The database constraint protects the rule even if two browser requests arrive close together.
 

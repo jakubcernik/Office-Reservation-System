@@ -338,6 +338,8 @@ Diagram odpovídá textu: `CANCELLED` je koncový stav, `CONFIRMED` se nedá „
 
 ## 9c Diagramy aktivit
 
+Diagramy OP-01…OP-04 popisují baseline v0.1. Diagram OP-05 přibyl se změnou C02 (baseline v0.2).
+
 **OP-01 Vytvoření rezervace**
 
 ```mermaid
@@ -385,11 +387,29 @@ flowchart TD
     D -->|ano| E[Nastav CANCELLED] --> F[Oznámení uživateli] --> Z
 ```
 
+**OP-05 Rozhodnutí o žádosti (schválit / zamítnout)**
+
+```mermaid
+flowchart TD
+    A([start]) --> B[Manager otevře frontu žádostí] --> C[Vyhodnoť vypršené žádosti]
+    C --> D{Stav PENDING_APPROVAL?}
+    D -->|ne| X[Odmítnout, stav beze změny] --> Z([end])
+    D -->|ano| E{Oprávněná osoba?}
+    E -->|ne| X
+    E -->|ano| F{Rozhodnutí schválit?}
+    F -->|ne| G[Nastav REJECTED] --> Y[Oznámení uživateli] --> Z
+    F -->|ano| H{Zdroj aktivní, bez kolize,<br/>splněno BR-04?}
+    H -->|ne| X2[Žádost zůstává PENDING_APPROVAL] --> Z
+    H -->|ano| I[Ulož CONFIRMED v transakci] --> J{Index v DB prošel?}
+    J -->|ne| X2
+    J -->|ano| K[Oznámení uživateli] --> Z
+```
+
 ## Stav baseline v0.1
 
 **Specification Baseline v0.1** — obsah výše odpovídá běžící aplikaci `reservations/` kromě jednoho nalezeného rozporu (rušení `DRAFT`, viz sekce 10), který se opravuje v kódu, aby platila specifikace.
 
-*Stav: k odsouhlasení týmem. Po review tým dopíše „schválená týmem“ a datum.*
+**Stav:** Specification Baseline v0.1 — **schválená týmem, 26. 9. 2026.**
 
 ---
 
@@ -548,6 +568,8 @@ flowchart LR
 | Kompletní OP-04 Cancel (scénáře) | Mění se jen výčet povolených stavů (REQ-06); pravidla vlastnictví a nevratnosti platí dál. |
 | Slovník pojmů, aktéři, hranice systému | Změna nepřidává nový pojem ve smyslu zdroje ani novou hranici systému. |
 | Architektura úložiště (PostgreSQL/Supabase) | Doménová změna se úložiště netýká; nové stavy jsou jen hodnoty existujícího sloupce `status`. |
+
+**Stav:** Specification Baseline v0.2 — **schválená týmem, 26. 9. 2026.**
 
 ## Architektonické drivery pro C03
 
