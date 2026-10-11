@@ -49,4 +49,4 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 
 **Architektonické drivery přenesené do C03:** notifikace jako skutečná externí závislost (rozšířila se na žádost, schválení, zamítnutí a vypršení); čas bez časovače (expirace se vyhodnocuje při čtení); BR-02 vynucené v aplikaci i v databázi; dvě role a potřeba jediného místa pro kontrolu oprávnění; nedokončený walking skeleton z CP1 (`POST /reservations`). Podrobněji v `docs/intent-and-change.md`.
 
-**Commit / tag aplikace:** *doplnit po commitu* — návrh zprávy: „approval process v0.2 (C02 change)“.
+**Commit / tag aplikace:** commit „approval process v0.2 (C02 change)“, tag `v0.2`.
