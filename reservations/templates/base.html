@@ -4,30 +4,47 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>document.documentElement.classList.add("js");</script>
     <title>{% block title %}Office Reservation System{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Geist:wght@400;500;600&family=Geist+Mono:wght@500&display=swap">
     <link rel="stylesheet" href="{% static 'reservations/styles.css' %}">
 </head>
 <body>
+{% with current=request.resolver_match.url_name %}
 <header class="topbar">
-    <div>
-        <a href="{% url 'reservations:availability' %}">Office Reservation System</a>
-    </div>
-    <nav>
-        {% if user.is_authenticated %}
-            <a href="{% url 'reservations:availability' %}">Availability</a>
-            <a href="{% url 'reservations:my_reservations' %}">My reservations</a>
-            {% if can_approve_requests %}
-                <a href="{% url 'reservations:approvals' %}">Approvals</a>
+    <div class="topbar-inner">
+        <a href="{% url 'reservations:availability' %}" class="brand">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v3M16 2.5v3"/><path d="M8.5 14.5l2.2 2.2 4.8-4.7"/></svg>
+            </span>
+            <span class="brand-text">Office<span>Reservations</span></span>
+        </a>
+        <nav>
+            {% if user.is_authenticated %}
+                <a href="{% url 'reservations:availability' %}" {% if current == 'availability' %}class="active" aria-current="page"{% endif %}>Availability</a>
+                <a href="{% url 'reservations:my_reservations' %}" {% if current == 'my_reservations' %}class="active" aria-current="page"{% endif %}>My reservations</a>
+                {% if can_approve_requests %}
+                    <a href="{% url 'reservations:approvals' %}" {% if current == 'approvals' %}class="active" aria-current="page"{% endif %}>Approvals</a>
+                {% endif %}
+                <span class="nav-divider" aria-hidden="true"></span>
+                <span class="user-chip" title="{{ user.username }}">
+                    <span class="avatar" aria-hidden="true">{{ user.username|first|upper }}</span>
+                    <span class="user-name">{{ user.username }}</span>
+                </span>
+                <form action="{% url 'logout' %}" method="post" class="inline-form">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-ghost">Logout</button>
+                </form>
+            {% else %}
+                <a href="{% url 'login' %}" {% if current == 'login' %}class="active"{% endif %}>Login</a>
+                <a href="{% url 'register' %}" {% if current == 'register' %}class="active"{% endif %}>Register</a>
             {% endif %}
-            <form action="{% url 'logout' %}" method="post" class="inline-form">
-                {% csrf_token %}
-                <button type="submit">Logout</button>
-            </form>
-        {% else %}
-            <a href="{% url 'login' %}">Login</a>
-        {% endif %}
-    </nav>
+        </nav>
+    </div>
 </header>
+{% endwith %}
 
 <main class="container">
     {% if messages %}
@@ -40,6 +57,10 @@
 
     {% block content %}{% endblock %}
 </main>
+
+<footer class="site-footer">
+    <span>Office Reservation System</span>
+    <span class="muted">Desks &amp; parking, one day at a time.</span>
+</footer>
 </body>
 </html>
-

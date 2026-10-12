@@ -24,12 +24,16 @@ class ReservationError(Exception):
     """Raised when a reservation state change cannot be completed."""
 
 
+def active_resources() -> QuerySet[Resource]:
+    return Resource.objects.filter(is_active=True)
+
+
 def available_resources_for_date(reservation_date) -> QuerySet[Resource]:
     occupied_resource_ids = Reservation.objects.filter(
         reservation_date=reservation_date,
         status=Reservation.Status.CONFIRMED,
     ).values_list("resource_id", flat=True)
-    return Resource.objects.filter(is_active=True).exclude(pk__in=occupied_resource_ids)
+    return active_resources().exclude(pk__in=occupied_resource_ids)
 
 
 def user_can_approve(user) -> bool:

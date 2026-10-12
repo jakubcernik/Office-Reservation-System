@@ -1,0 +1,95 @@
+<svg class="floor-plan" viewBox="{{ floor_plan_viewbox }}" role="group" aria-label="Office floor plan">
+    <defs>
+        <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" class="hatch-line"/>
+        </pattern>
+        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M20 0H0V20" class="grid-line"/>
+        </pattern>
+    </defs>
+
+    {# ---------- Office floor ---------- #}
+    <rect x="20" y="20" width="960" height="400" class="floor"/>
+    <rect x="220" y="20" width="540" height="400" fill="url(#grid)"/>
+
+    {# Meeting room #}
+    <rect x="20" y="20" width="200" height="180" class="room"/>
+    <rect x="62" y="80" width="116" height="56" rx="28" class="furniture"/>
+    <circle cx="86" cy="68" r="8" class="chair-static"/><circle cx="120" cy="68" r="8" class="chair-static"/><circle cx="154" cy="68" r="8" class="chair-static"/>
+    <circle cx="86" cy="148" r="8" class="chair-static"/><circle cx="120" cy="148" r="8" class="chair-static"/><circle cx="154" cy="148" r="8" class="chair-static"/>
+    <text x="36" y="44" class="room-label">Meeting room</text>
+
+    {# Kitchen #}
+    <rect x="20" y="200" width="200" height="220" class="room"/>
+    <rect x="34" y="232" width="26" height="170" rx="3" class="furniture"/>
+    <circle cx="47" cy="262" r="7" class="fixture"/><rect x="38" y="300" width="18" height="24" rx="3" class="fixture"/>
+    <circle cx="150" cy="300" r="24" class="furniture"/>
+    <circle cx="150" cy="264" r="8" class="chair-static"/><circle cx="150" cy="336" r="8" class="chair-static"/>
+    <circle cx="114" cy="300" r="8" class="chair-static"/><circle cx="186" cy="300" r="8" class="chair-static"/>
+    <text x="36" y="224" class="room-label">Kitchen</text>
+
+    {# Director's wing #}
+    <rect x="760" y="20" width="220" height="210" class="room room-accent"/>
+    <path d="M790 196h56a10 10 0 0 1 10 10v8h-76v-8a10 10 0 0 1 10-10z" class="furniture"/>
+    <circle cx="950" cy="52" r="14" class="plant"/>
+    <text x="776" y="44" class="room-label">Director's wing</text>
+
+    {# Reception #}
+    <rect x="760" y="230" width="220" height="190" class="room"/>
+    <path d="M800 330q70 -40 140 0v18q-70 -40 -140 0z" class="furniture"/>
+    <text x="776" y="254" class="room-label">Reception</text>
+
+    {# Open office decor #}
+    <text x="236" y="44" class="room-label">Open office</text>
+    <rect x="404" y="312" width="172" height="74" rx="10" class="rug"/>
+    <path d="M414 330h152v-14a8 8 0 0 0-8-8H422a8 8 0 0 0-8 8z" class="furniture"/>
+    <circle cx="490" cy="360" r="14" class="furniture"/>
+    <circle cx="246" cy="394" r="16" class="plant"/>
+    <circle cx="734" cy="394" r="16" class="plant"/>
+    <circle cx="734" cy="46" r="12" class="plant"/>
+
+    {# Walls drawn last so doors can cut them #}
+    <rect x="20" y="20" width="960" height="400" class="wall"/>
+    <path d="M220 20V146M220 186V246M220 286V420M20 200H220M760 20V160M760 200V230M760 230H980M760 380V420" class="wall"/>
+    <path d="M846 420h56" class="door-gap"/>
+    <path d="M220 146a40 40 0 0 1 40 40M220 246a40 40 0 0 1 40 40M760 160a40 40 0 0 0 -40 40" class="door-swing"/>
+    <text x="874" y="410" class="entrance-label" text-anchor="middle">Entrance</text>
+
+    {# ---------- Garage ---------- #}
+    <rect x="20" y="450" width="960" height="170" class="floor garage"/>
+    <path d="M800 462V608" class="lane-divider"/>
+    <text x="664" y="508" class="room-label">Garage</text>
+    <path d="M664 540h80m-12 -8l12 8l-12 8" class="lane-arrow"/>
+    <text x="890" y="610" class="room-label" text-anchor="middle">Visitors</text>
+    <rect x="20" y="450" width="960" height="170" class="wall"/>
+    <path d="M980 500v90" class="door-gap"/>
+
+    {# ---------- Bookable spots ---------- #}
+    {% for spot in floor_plan_spots %}
+        <g class="spot spot-{{ spot.kind }} is-{{ spot.state }}"
+           data-spot
+           data-id="{{ spot.resource.pk }}"
+           data-name="{{ spot.resource.name }}"
+           data-type="{{ spot.resource.get_resource_type_display }}"
+           data-location="{{ spot.resource.location }}"
+           data-state="{{ spot.state }}"
+           data-status="{% if spot.my_reservation %}{{ spot.my_reservation.get_status_display }}{% endif %}"
+           tabindex="0" role="button"
+           aria-label="{{ spot.resource.get_resource_type_display }} {{ spot.resource.name }}">
+            <title>{{ spot.resource.name }}</title>
+            {% if spot.has_chair %}<circle cx="{{ spot.cx }}" cy="{{ spot.chair_y }}" r="9" class="chair"/>{% endif %}
+            <rect x="{{ spot.x }}" y="{{ spot.y }}" width="{{ spot.width }}" height="{{ spot.height }}" rx="{% if spot.kind == 'parking' %}8{% else %}5{% endif %}" class="spot-shape"/>
+            {% if spot.kind == 'parking' %}
+                {% if spot.state == 'taken' or spot.state == 'mine' %}
+                    <g class="car" transform="translate({{ spot.cx }} {{ spot.y }})">
+                        <rect x="-21" y="14" width="42" height="68" rx="13"/>
+                        <rect x="-15" y="30" width="30" height="14" rx="4" class="car-glass"/>
+                    </g>
+                {% endif %}
+                <text x="{{ spot.cx }}" y="{{ spot.y|add:spot.height|add:-14 }}" class="spot-label">{{ spot.resource.name }}</text>
+            {% else %}
+                <text x="{{ spot.cx }}" y="{{ spot.cy }}" class="spot-label">{{ spot.resource.name }}</text>
+            {% endif %}
+        </g>
+    {% endfor %}
+</svg>

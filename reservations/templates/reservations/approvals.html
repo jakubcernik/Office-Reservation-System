@@ -3,32 +3,46 @@
 {% block title %}Approvals | Office Reservation System{% endblock %}
 
 {% block content %}
-<h1>Approval requests</h1>
+<header class="page-header">
+    <div>
+        <p class="eyebrow">Office manager</p>
+        <h1>Approval requests</h1>
+    </div>
+    <span class="count-pill">{{ pending_requests|length }} pending</span>
+</header>
 
-<section class="card">
+<section class="card card-flush">
     {% if pending_requests %}
         <ul class="reservation-list">
             {% for reservation in pending_requests %}
-                <li>
-                    <div>
-                        <strong>{{ reservation.resource.name }}</strong>
-                        <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
-                    </div>
-                    <div class="muted">
-                        {{ reservation.resource.get_resource_type_display }} • {{ reservation.reservation_date }} • {{ reservation.user.username }}
+                <li class="row">
+                    <span class="resource-icon">{% include 'reservations/partials/resource_icon.html' with type=reservation.resource.resource_type %}</span>
+                    <div class="row-main">
+                        <div class="row-title">
+                            <strong>{{ reservation.resource.name }}</strong>
+                            <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
+                        </div>
+                        <div class="row-meta">
+                            <span>{{ reservation.resource.get_resource_type_display }}</span>
+                            <span class="mono">{{ reservation.reservation_date }}</span>
+                            <span class="requester"><span class="avatar avatar-sm" aria-hidden="true">{{ reservation.user.username|first|upper }}</span>{{ reservation.user.username }}</span>
+                        </div>
                     </div>
                     <div class="actions">
                         <form method="post" action="{% url 'reservations:decide_approval' reservation.pk %}" class="inline-form">
                             {% csrf_token %}
-                            <button type="submit" name="decision" value="approve">Approve</button>
                             <button type="submit" name="decision" value="reject">Reject</button>
+                            <button type="submit" name="decision" value="approve">Approve</button>
                         </form>
                     </div>
                 </li>
             {% endfor %}
         </ul>
     {% else %}
-        <p>No requests are waiting for approval.</p>
+        <div class="empty-state">
+            <p class="empty-title">All caught up</p>
+            <p class="muted">No requests are waiting for approval.</p>
+        </div>
     {% endif %}
 </section>
 {% endblock %}

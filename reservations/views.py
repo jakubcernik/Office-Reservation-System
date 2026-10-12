@@ -7,10 +7,12 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from .floor_plan import VIEWBOX, floor_plan_spots
 from .forms import AvailabilityForm, RegistrationForm, ReservationCreationForm
 from .models import Reservation
 from .services import (
     ReservationError,
+    active_resources,
     available_resources_for_date,
     cancel_reservation,
     confirm_reservation,
@@ -68,6 +70,12 @@ def availability(request: HttpRequest) -> HttpResponse:
         "selected_date": reservation_date,
         "available_resources": resources,
         "user_reservations": user_reservations,
+        "floor_plan_spots": floor_plan_spots(
+            active_resources(),
+            [resource.pk for resource in available_resources],
+            user_reservations,
+        ),
+        "floor_plan_viewbox": f"0 0 {VIEWBOX[0]} {VIEWBOX[1]}",
     }
     return render(request, "reservations/availability.html", context)
 

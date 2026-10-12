@@ -3,16 +3,22 @@
 {% block title %}Login | Office Reservation System{% endblock %}
 
 {% block content %}
-<section class="card narrow">
-    <h1>Login</h1>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        <div class="field">{{ form.username.label_tag }} {{ form.username }}</div>
-        <div class="field">{{ form.password.label_tag }} {{ form.password }}</div>
-        <button type="submit">Sign in</button>
-    </form>
-    <p class="muted">New here? <a href="{% url 'register' %}">Create an account</a>.</p>
+<section class="auth">
+    <div class="auth-intro">
+        <p class="eyebrow">Welcome back</p>
+        <h1>Find your spot<br>for the day.</h1>
+        <p class="lead">Book a desk or a parking spot in a few clicks and see what is free before you head to the office.</p>
+    </div>
+    <div class="card auth-card">
+        <h2>Sign in</h2>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div class="field">{{ form.username.label_tag }} {{ form.username }}</div>
+            <div class="field">{{ form.password.label_tag }} {{ form.password }}</div>
+            <button type="submit" class="btn-block">Sign in</button>
+        </form>
+        <p class="muted auth-switch">New here? <a href="{% url 'register' %}">Create an account</a></p>
+    </div>
 </section>
 {% endblock %}
-

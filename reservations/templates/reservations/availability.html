@@ -3,52 +3,39 @@
 {% block title %}Availability | Office Reservation System{% endblock %}
 
 {% block content %}
-<h1>Availability</h1>
-
-<section class="card">
-    <form method="get" class="inline-form">
+<header class="page-header">
+    <div>
+        <p class="eyebrow">Plan your day</p>
+        <h1>Availability</h1>
+    </div>
+    <form method="get" class="date-picker">
         {{ date_form.reservation_date.label_tag }}
         {{ date_form.reservation_date }}
         <button type="submit">Show</button>
     </form>
-</section>
+</header>
 
-<section class="grid">
-    <article class="card">
-        <h2>Available resources for {{ selected_date }}</h2>
-        {% if available_resources %}
-            <ul class="resource-list">
-                {% for item in available_resources %}
-                    <li>
-                        <strong>{{ item.resource.get_resource_type_display }}:</strong>
-                        {{ item.resource.name }}
-                        {% if item.resource.location %}<span class="muted">({{ item.resource.location }})</span>{% endif %}
-                        {% if item.resource.requires_approval %}
-                            <span class="badge approval-required">Approval needed</span>
-                        {% endif %}
-                        <form method="post" action="{% url 'reservations:create_reservation' %}" class="inline-form">
-                            {% csrf_token %}
-                            {{ item.reservation_form.resource_id }}
-                            {{ item.reservation_form.reservation_date }}
-                            <button type="submit">Reserve</button>
-                        </form>
-                    </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p>No active resources are available for this date.</p>
-        {% endif %}
-    </article>
-
-    <article class="card">
-        <h2>Your reservations for {{ selected_date }}</h2>
+<section class="stack">
+    <aside class="card day-strip">
+        <div class="section-head">
+            <h2>Your day</h2>
+            <span class="mono muted">{{ selected_date }}</span>
+        </div>
         {% if user_reservations %}
-            <ul class="reservation-list">
+            <ul class="reservation-list compact">
                 {% for reservation in user_reservations %}
                     <li>
-                        <strong>{{ reservation.resource.name }}</strong>
-                        <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
-                        <div class="muted">{{ reservation.resource.get_resource_type_display }} • {{ reservation.reservation_date }}</div>
+                        <div class="row-title">
+                            <strong>{{ reservation.resource.name }}</strong>
+                            <span class="badge {{ reservation.status|lower }}">{{ reservation.get_status_display }}</span>
+                        </div>
+                        <div class="row-meta">
+                            <span>{{ reservation.resource.get_resource_type_display }}</span>
+                            <span class="mono">{{ reservation.reservation_date }}</span>
+                        </div>
+                        {% if reservation.status == 'PENDING_APPROVAL' %}
+                            <p class="hint">Waiting for an office manager.</p>
+                        {% endif %}
                         <div class="actions">
                             {% if reservation.status == 'DRAFT' %}
                                 <form method="post" action="{% url 'reservations:confirm_reservation' reservation.pk %}" class="inline-form">
@@ -57,14 +44,11 @@
                                     <button type="submit">{% if reservation.resource.requires_approval %}Request approval{% else %}Confirm{% endif %}</button>
                                 </form>
                             {% endif %}
-                            {% if reservation.status == 'PENDING_APPROVAL' %}
-                                <span class="muted">Waiting for an office manager.</span>
-                            {% endif %}
                             {% if reservation.status == 'DRAFT' or reservation.status == 'PENDING_APPROVAL' or reservation.status == 'CONFIRMED' %}
                                 <form method="post" action="{% url 'reservations:cancel_reservation' reservation.pk %}" class="inline-form">
                                     {% csrf_token %}
                                     <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <button type="submit">{% if reservation.status == 'PENDING_APPROVAL' %}Withdraw request{% else %}Cancel{% endif %}</button>
+                                    <button type="submit" class="btn-secondary">{% if reservation.status == 'PENDING_APPROVAL' %}Withdraw request{% else %}Cancel{% endif %}</button>
                                 </form>
                             {% endif %}
                         </div>
@@ -72,9 +56,155 @@
                 {% endfor %}
             </ul>
         {% else %}
-            <p>You do not have reservations for this date.</p>
+            <div class="empty-state small">
+                <p class="muted">You do not have reservations for this date.</p>
+            </div>
         {% endif %}
-    </article>
-</section>
-{% endblock %}
+    </aside>
 
+    <article>
+        <div class="section-head">
+            <h2>Available resources</h2>
+            <div class="view-switch" role="tablist" aria-label="Display">
+                <button type="button" role="tab" data-view-tab="plan" aria-selected="true">Floor plan</button>
+                <button type="button" role="tab" data-view-tab="list" aria-selected="false">List</button>
+            </div>
+        </div>
+
+        <div data-view="plan" class="view is-active">
+            <div class="card plan-card">
+                <div class="plan-scroll">
+                    {% include 'reservations/partials/floor_plan.html' %}
+                </div>
+                <ul class="plan-legend">
+                    <li><span class="swatch is-free"></span>Free</li>
+                    <li><span class="swatch is-approval"></span>Approval needed</li>
+                    <li><span class="swatch is-mine"></span>Yours</li>
+                    <li><span class="swatch is-taken"></span>Taken</li>
+                </ul>
+                <div class="plan-detail" data-plan-detail aria-live="polite">
+                    <p class="plan-detail-empty" data-detail-empty>Click a desk or parking spot on the plan to see details.</p>
+                    <div class="plan-detail-body" data-detail-body hidden>
+                        <div class="plan-detail-info">
+                            <span class="resource-type" data-detail-type></span>
+                            <strong class="resource-name" data-detail-name></strong>
+                            <span class="muted" data-detail-location></span>
+                        </div>
+                        <span class="badge" data-detail-badge></span>
+                        <form method="post" action="{% url 'reservations:create_reservation' %}" class="inline-form" data-detail-form>
+                            {% csrf_token %}
+                            <input type="hidden" name="resource_id" value="" data-detail-resource>
+                            <input type="hidden" name="reservation_date" value="{{ selected_date|date:'Y-m-d' }}">
+                            <button type="submit">Reserve</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div data-view="list" class="view">
+        {% if available_resources %}
+            <ul class="resource-list">
+                {% for item in available_resources %}
+                    <li class="resource-card">
+                        <div class="resource-top">
+                            <span class="resource-icon">{% include 'reservations/partials/resource_icon.html' with type=item.resource.resource_type %}</span>
+                            {% if item.resource.requires_approval %}
+                                <span class="badge approval-required">Approval needed</span>
+                            {% else %}
+                                <span class="status-dot">Free</span>
+                            {% endif %}
+                        </div>
+                        <div class="resource-body">
+                            <span class="resource-type">{{ item.resource.get_resource_type_display }}</span>
+                            <strong class="resource-name">{{ item.resource.name }}</strong>
+                            {% if item.resource.location %}<span class="muted">{{ item.resource.location }}</span>{% endif %}
+                        </div>
+                        <form method="post" action="{% url 'reservations:create_reservation' %}" class="inline-form">
+                            {% csrf_token %}
+                            {{ item.reservation_form.resource_id }}
+                            {{ item.reservation_form.reservation_date }}
+                            <button type="submit" class="btn-block">Reserve</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="card empty-state">
+                <p class="empty-title">Fully booked</p>
+                <p class="muted">No active resources are available for this date.</p>
+            </div>
+        {% endif %}
+        </div>
+    </article>
+
+</section>
+
+<script>
+(function () {
+    var STORAGE_KEY = "availability-view";
+    var tabs = document.querySelectorAll("[data-view-tab]");
+    var views = document.querySelectorAll("[data-view]");
+
+    function showView(name) {
+        tabs.forEach(function (tab) {
+            tab.setAttribute("aria-selected", String(tab.dataset.viewTab === name));
+        });
+        views.forEach(function (view) {
+            view.classList.toggle("is-active", view.dataset.view === name);
+        });
+        try { localStorage.setItem(STORAGE_KEY, name); } catch (e) {}
+    }
+
+    tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () { showView(tab.dataset.viewTab); });
+    });
+    try {
+        var saved = localStorage.getItem(STORAGE_KEY);
+        if (saved === "list" || saved === "plan") { showView(saved); }
+    } catch (e) {}
+
+    var detail = document.querySelector("[data-plan-detail]");
+    if (!detail) { return; }
+    var empty = detail.querySelector("[data-detail-empty]");
+    var body = detail.querySelector("[data-detail-body]");
+    var badge = detail.querySelector("[data-detail-badge]");
+    var form = detail.querySelector("[data-detail-form]");
+    var resourceInput = detail.querySelector("[data-detail-resource]");
+    var STATES = {
+        free: { label: "Free", className: "confirmed", bookable: true },
+        approval: { label: "Approval needed", className: "approval-required", bookable: true },
+        taken: { label: "Taken", className: "expired", bookable: false },
+        mine: { label: "Yours", className: "draft", bookable: false }
+    };
+
+    function select(spot) {
+        document.querySelectorAll("[data-spot].is-selected").forEach(function (el) {
+            el.classList.remove("is-selected");
+        });
+        spot.classList.add("is-selected");
+
+        var state = STATES[spot.dataset.state];
+        detail.querySelector("[data-detail-type]").textContent = spot.dataset.type;
+        detail.querySelector("[data-detail-name]").textContent = spot.dataset.name;
+        detail.querySelector("[data-detail-location]").textContent = spot.dataset.location;
+        badge.textContent = spot.dataset.status || state.label;
+        badge.className = "badge " + state.className;
+        resourceInput.value = spot.dataset.id;
+        form.hidden = !state.bookable;
+        empty.hidden = true;
+        body.hidden = false;
+    }
+
+    document.querySelectorAll("[data-spot]").forEach(function (spot) {
+        spot.addEventListener("click", function () { select(spot); });
+        spot.addEventListener("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                select(spot);
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}
