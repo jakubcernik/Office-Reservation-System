@@ -101,3 +101,33 @@ class AvailabilityActionViewTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("reservations:my_reservations"))
+
+
+class ReservationPageRuleTests(TestCase):
+    """Verification examples from C02 that are checked through HTTP."""
+
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(username="alice", password="password12345")
+        self.stranger = get_user_model().objects.create_user(username="bob", password="password12345")
+        self.desk = Resource.objects.create(name="A12", resource_type=Resource.ResourceType.DESK)
+        self.today = date.today()
+
+    # OP-03: "cizí rezervace → přístup odmítnut (403), stav beze změny"
+    def test_confirming_someone_elses_reservation_is_forbidden(self):
+        draft = create_draft(user=self.owner, resource=self.desk, reservation_date=self.today)
+        self.client.force_login(self.stranger)
+
+        response = self.client.post(reverse("reservations:confirm_reservation", args=[draft.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, Reservation.Status.DRAFT)
+
+    # OP-02: "neplatné datum → použije se dnešní den"
+    def test_invalid_date_falls_back_to_today(self):
+        self.client.force_login(self.owner)
+
+        response = self.client.get(reverse("reservations:availability") + "?date=not-a-date")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_date"], self.today)

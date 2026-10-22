@@ -120,7 +120,7 @@ Consequences for the rules from the section above:
 
 - The business rule "confirmed reservations for the same resource must not overlap" is now enforced by a **partial unique index** (`unique_confirmed_resource_date`) instead of SQLite's partial index. The service-level check stays as a friendly error message; the constraint remains the last line of defence.
 - The stated upgrade trigger ("PostgreSQL for higher concurrency") is now met, so the concurrency model can be revisited next.
-- Tests keep running on SQLite locally, so `manage.py test` never touches the shared database.
+- Tests run on SQLite by default, so `manage.py test` never touches the shared database. *(Since C06 they can run on a PostgreSQL server of your own via `TEST_DATABASE_URL`, never on Supabase.)*
 - Draft expiry, notifications, and the missing capacity numbers are still out of scope, exactly as decided above.
 
 ## Change record: modules split by architecture element
@@ -152,6 +152,8 @@ Part A below and the C03 evidence describe the code as it was at that time; file
 # Part A — AS-IS: mapování scénáře Confirm Reservation
 
 Ověřený AS-IS podklad pro C03. Sledovaný scénář je jedna operace ze Specification Baseline v0.2 a jeho realizace v běžícím kódu.
+
+*Odkazy na soubory a řádky v Části A platí pro stav v době C03 (tag `c03`); současné umístění viz change record „modules split by architecture element“ výše.*
 
 ## A1. Scénář, který sledujeme
 
@@ -259,6 +261,7 @@ flowchart TB
 | Otázka | Kde se má udělat **autoritativní** rozhodnutí o konfliktu, aby BR-02 platilo i při dvou souběžných confirm requestech? |
 | Doklad | kontrola `filter(...).exists()` (`services.py:118`) a `save()` (`services.py:133`) jsou dvě oddělené operace oddělené v čase; drží to až částečný unikátní index v DB (`models.py:48`) |
 | Proč je důležitá | REQ-04/BR-02: souběh nesmí vytvořit dvě potvrzené rezervace téhož zdroje a dne |
+| Odpověď (C04) | Měření ukázalo, že na PostgreSQL souběh řadil zámek řádku zdroje, který vznikal jen jako vedlejší efekt `select_related`. Rozhodnutí: zámek zdroje je autoritativní místo a je explicitní (`lock_for_allocation`), index je poslední pojistka. Viz „C04 — Quality & Measurement“ v `docs/evidence-and-evolution.md`. |
 
 ## A9. Použití AI
 
@@ -273,19 +276,21 @@ AI byla použita na navigaci v repozitáři a první verzi diagramu. Do tohoto v
 | Položka | Hodnota |
 | --- | --- |
 | Jednotka | **Confirm Reservation** uvnitř prvku Reservation Management (C03, G2) |
-| Kód | `reservations/services/lifecycle.py` (`create_reservation`, `confirm_reservation`, `allocate`, `notify_after_commit`), `reservations/services/rules.py` (`ensure_can_allocate`, `user_has_confirmed_desk`) |
+| Kód | `reservations/services/lifecycle.py` (`create_reservation`, `confirm_reservation`, `lock_for_allocation`, `allocate`, `notify_after_commit`), `reservations/services/rules.py` (`ensure_can_allocate`, `user_has_confirmed_desk`) |
 | Požadavky | REQ-03, REQ-04, REQ-05, REQ-07 |
 | Scénáře | OP-03 Confirm Reservation, v0.3 rezervace jedním krokem (OP-01 + OP-03), větev se schválením (BR-05) |
 | Pravidla | BR-02 (jedna potvrzená rezervace na zdroj a den), BR-04 (parkování vyžaduje stůl), BR-05 (schvalované zdroje), BR-07 (schválení kontroluje stejná pravidla) |
 
-Mimo tuto jednotku: rozhodnutí manažera (`services/approvals.py`) a zrušení. Používají ale stejné `ensure_can_allocate`, `allocate` a `notify_after_commit`.
+Mimo tuto jednotku: rozhodnutí manažera (`services/approvals.py`) a zrušení. Schválení ale používá stejné `lock_for_allocation`, `ensure_can_allocate`, `allocate` a `notify_after_commit`.
+
+*Aktualizováno v C06:* pořadí kontrol sjednoceno s diagramy aktivit C02 (DD-3) a zámek zdroje je explicitní (DD-5, výsledek měření C04). Původní znění je v tagu `c05`.
 
 ## Detailed responsibilities
 
 | Detailní odpovědnost | Proč je potřeba |
 | --- | --- |
 | R1 ověřit, že přechod je povolený (jen `DRAFT`) | statechart z C02 nepovoluje potvrdit nic jiného |
-| R2 ověřit pravidla přidělení (aktivní zdroj, BR-04, BR-02) | stejná pravidla musí platit pro potvrzení i schválení (BR-07) |
+| R2 ověřit pravidla přidělení (aktivní zdroj, BR-02, BR-04) | stejná pravidla musí platit pro potvrzení i schválení (BR-07) |
 | R3 rozhodnout cílový stav (`CONFIRMED` nebo `PENDING_APPROVAL`) | zdroj s `requires_approval` se nepřiděluje hned (BR-05) |
 | R4 uložit `CONFIRMED` a ustát souběh | dvě žádosti mohou projít kontrolou současně (D1, BR-02) |
 | R5 oznámit změnu až po jejím uložení | notifikace nesmí ohlásit něco, co se neuložilo, a její selhání nesmí změnit výsledek (D3) |
@@ -297,7 +302,7 @@ Mimo tuto jednotku: rozhodnutí manažera (`services/approvals.py`) a zrušení.
 | --- | --- | --- | --- |
 | R1, R3 | `confirm_reservation` (`lifecycle.py`) | `Reservation.status`, zamčený řádek | jen Reservation Management mění stav (RULE-1) |
 | R2 | `ensure_can_allocate` (`rules.py`) | jen čte `Reservation`, `Resource` | jedna funkce pro potvrzení i schválení; nic nemění, takže jde testovat samostatně |
-| R4 | `allocate` (`lifecycle.py`) + DB index `unique_confirmed_resource_date` | `Reservation.status = CONFIRMED` | aplikační kontrola dává čitelnou chybu, index je poslední pojistka při souběhu |
+| R4 | `lock_for_allocation` + `allocate` (`lifecycle.py`) + DB index `unique_confirmed_resource_date` | zámek řádku rezervace a zdroje; `Reservation.status = CONFIRMED` | zámek zdroje řadí souběžná přidělení téhož zdroje za sebe, takže kontrola vidí výsledek předchozího; index je poslední pojistka (měření C04) |
 | R5 | `notify_after_commit` (`lifecycle.py`) → `notify_reservation_event` (`integrations/notifications.py`) | žádný | kdy oznamovat rozhoduje Reservation Management, jak doručit rozhoduje integrace |
 | R6 | `create_reservation` (`lifecycle.py`) | transakce | vytvoření a potvrzení musí být jeden atomický krok |
 
@@ -307,15 +312,15 @@ Mimo tuto jednotku: rozhodnutí manažera (`services/approvals.py`) a zrušení.
 ensure_can_allocate(reservation: Reservation) -> None
 
 Preconditions:
-- reservation má načtený resource a user (volající ho drží zamčený v transakci)
+- reservation má načtený resource a user; volající drží v transakci zámek rezervace i zdroje (lock_for_allocation)
 
 Postconditions:
 - při úspěchu se nic nezmění (žádný zápis do DB)
 
 Failures (ReservationError, kontroluje se v tomto pořadí, hlásí se první):
 - "The selected resource is no longer active."           – zdroj není aktivní
-- "Parking requires a confirmed desk reservation ..."    – BR-04: chybí vlastní CONFIRMED stůl na stejný den
 - "The selected resource is already confirmed ..."       – BR-02: jiná CONFIRMED rezervace téhož zdroje a dne
+- "Parking requires a confirmed desk reservation ..."    – BR-04: chybí vlastní CONFIRMED stůl na stejný den
 ```
 
 ```
@@ -344,6 +349,7 @@ classDiagram
         <<module>>
         +create_reservation(user, resource, date) Reservation
         +confirm_reservation(reservation) Reservation
+        +lock_for_allocation(reservation) Reservation
         +allocate(reservation) void
         +notify_after_commit(action, reservation) void
     }
@@ -401,14 +407,14 @@ sequenceDiagram
 
     V->>L: create_reservation(user, resource, date)
     activate L
+    L->>E: expire_stale_approvals() (samostatně, mimo transakci)
     Note over L,DB: transaction.atomic
     L->>DB: INSERT Reservation(DRAFT)
     L->>L: confirm_reservation(draft)
-    L->>E: expire_stale_approvals()
-    L->>DB: SELECT ... FOR UPDATE
+    L->>DB: lock_for_allocation: SELECT ... FOR UPDATE OF rezervace, zdroj
     L->>L: status == DRAFT?
     L->>R: ensure_can_allocate(reservation)
-    R->>DB: zdroj aktivní? vlastní CONFIRMED stůl? jiná CONFIRMED?
+    R->>DB: zdroj aktivní? jiná CONFIRMED? (parkování) vlastní CONFIRMED stůl?
     alt pravidlo porušeno
         R-->>L: ReservationError
         Note over L,DB: rollback – DRAFT zmizí (R6)
@@ -432,10 +438,16 @@ sequenceDiagram
 - Vstup: `Reservation`; výstup: aktualizovaná `Reservation`
 - Pre: rezervace existuje, volající je vlastník
 - Post: `CONFIRMED` nebo `PENDING_APPROVAL`; při chybě beze změny
-- Vedlejší efekty: nejdřív expiruje prošlé žádosti; zamkne řádek; po commitu jedna notifikace
+- Vedlejší efekty: nejdřív expiruje prošlé žádosti, a to **mimo** transakci potvrzení, aby ji odmítnutí nevrátilo (stejně jako u schválení; C02 evidence, nález 2); zamkne řádek rezervace a řádek zdroje (souběžná přidělení téhož zdroje čekají); po commitu jedna notifikace
 - Chyby: `ReservationError` (stav, pravidla, souběh)
 
 **`ensure_can_allocate(reservation)`**: kontrakt je výše. Je to čistá kontrola bez zápisu.
+
+**`lock_for_allocation(reservation)`**
+- Odpovědnost: R4 (autoritativní bod BR-02 při souběhu, rozhodnutí C04)
+- Pre: běží v transakci
+- Post: vrátí čerstvě načtenou rezervaci; řádky rezervace a zdroje jsou zamčené do konce transakce
+- Chyby: žádné vlastní (na SQLite se zámek neuplatní, platí jen index)
 
 **`allocate(reservation)`**
 - Odpovědnost: R4
@@ -456,14 +468,15 @@ sequenceDiagram
 
 ```
 confirm_reservation(r):
-    expire_stale_approvals()
-    r = lock(r)
+    expire_stale_approvals()         # vlastní commit, mimo transakci níže
+    # --- od tohoto místa transaction.atomic ---
+    r = lock_for_allocation(r)       # zámek rezervace + zdroje
     if r.status != DRAFT:            fail "Only draft reservations can be confirmed."
     ensure_can_allocate(r):
         if not r.resource.is_active:                     fail "no longer active"
+        if other CONFIRMED for r.resource on r.date:     fail "already confirmed"
         if r.resource is PARKING
            and no CONFIRMED desk of r.user on r.date:    fail "Parking requires ..."
-        if other CONFIRMED for r.resource on r.date:     fail "already confirmed"
     if r.resource.requires_approval:
         r.status = PENDING_APPROVAL; notify_after_commit("requested approval")
     else:
@@ -472,12 +485,12 @@ confirm_reservation(r):
     return r
 ```
 
-| Stav | Aktivní | Parkování bez stolu | Obsazeno | `requires_approval` | Výsledek |
+| Stav | Aktivní | Obsazeno | Parkování bez stolu | `requires_approval` | Výsledek |
 | --- | --- | --- | --- | --- | --- |
 | ≠ DRAFT | – | – | – | – | chyba „Only draft“ |
 | DRAFT | ne | – | – | – | chyba „no longer active“ |
-| DRAFT | ano | ano | – | – | chyba „Parking requires“ |
-| DRAFT | ano | ne | ano | – | chyba „already confirmed“ |
+| DRAFT | ano | ano | – | – | chyba „already confirmed“ |
+| DRAFT | ano | ne | ano | – | chyba „Parking requires“ |
 | DRAFT | ano | ne | ne | ano | `PENDING_APPROVAL` |
 | DRAFT | ano | ne | ne | ne | `CONFIRMED` |
 
@@ -485,9 +498,9 @@ Návrhová rozhodnutí, na která odkazují testy:
 
 - **DD-1:** potvrdit jde jen `DRAFT`; jiný stav se nemění.
 - **DD-2:** `ensure_can_allocate` je čistá kontrola bez zápisu.
-- **DD-3:** kontroly mají pevné pořadí a hlásí se první chyba. BR-04 počítá jen **vlastní CONFIRMED** stůl **na stejný den**.
+- **DD-3:** kontroly mají pevné pořadí podle diagramů aktivit OP-03/OP-05 z C02 (aktivní → obsazenost → parkování) a hlásí se první chyba. BR-04 počítá jen **vlastní CONFIRMED** stůl **na stejný den**.
 - **DD-4:** pravidla se kontrolují **před** větví schválení, takže o obsazený zdroj nejde ani požádat.
-- **DD-5:** souběh rozhoduje DB index a prohraný souběh se hlásí jako `ReservationError`.
+- **DD-5:** souběžná přidělení téhož zdroje řadí zámek řádku zdroje (`lock_for_allocation`), takže druhé odmítne už kontrola BR-02; když by kontrolou prošla dvě najednou, rozhodne DB index a prohraný souběh se hlásí jako `ReservationError` (ověřeno měřením C04).
 - **DD-6:** notifikace až po commitu, při rollbacku žádná; selhání doručení nemění výsledek.
 - **DD-7:** v toku v0.3 po chybě nic nezůstane.
 
@@ -496,4 +509,4 @@ Návrhová rozhodnutí, na která odkazují testy:
 - přesné texty chybových hlášek (testy kontrolují jen jejich klíčovou část);
 - tvar dotazů ORM a `select_related`;
 - formát logovací zprávy notifikace;
-- zamykání řádku na SQLite (`select_for_update` tam nic nedělá, na PostgreSQL ano).
+- SQLite (vývoj, testy) zámky řádků nemá; souběh tam drží jen index. Deklarované prostředí pro souběh je PostgreSQL (C04).

@@ -13,7 +13,7 @@ from django.db import transaction
 from django.test import TestCase
 
 from ..models import Reservation, Resource
-from ..services import ReservationError, confirm_reservation, create_draft, ensure_can_allocate
+from ..services import ReservationError, cancel_reservation, confirm_reservation, create_draft, ensure_can_allocate
 from ..services.lifecycle import allocate
 
 
@@ -54,6 +54,15 @@ class ConfirmationDesignTests(TestCase):
         with self.assertRaisesMessage(ReservationError, "no longer active"):
             ensure_can_allocate(draft)
 
+    # DD-3: a taken parking spot is reported as taken, even when the desk is missing too
+    # (OP-03 activity diagram: conflict is checked before BR-04).
+    def test_conflict_is_reported_before_the_parking_rule(self):
+        self._confirmed(self.other_user, self.parking)
+        draft = create_draft(user=self.user, resource=self.parking, reservation_date=self.today)
+
+        with self.assertRaisesMessage(ReservationError, "already confirmed"):
+            ensure_can_allocate(draft)
+
     # DD-3 / BR-04 boundary: only the user's own CONFIRMED desk on the same day counts.
     def test_parking_rule_ignores_desks_that_do_not_count(self):
         tomorrow = self.today + timedelta(days=1)
@@ -86,7 +95,13 @@ class ConfirmationDesignTests(TestCase):
 
     # DD-1 precondition: only DRAFT may be confirmed; other states stay untouched.
     def test_only_a_draft_can_be_confirmed(self):
-        for status in (Reservation.Status.CONFIRMED, Reservation.Status.CANCELLED, Reservation.Status.REJECTED):
+        for status in (
+            Reservation.Status.PENDING_APPROVAL,
+            Reservation.Status.CONFIRMED,
+            Reservation.Status.REJECTED,
+            Reservation.Status.EXPIRED,
+            Reservation.Status.CANCELLED,
+        ):
             with self.subTest(status=status):
                 reservation = Reservation.objects.create(
                     user=self.user, resource=self.desk, reservation_date=self.today + timedelta(days=7), status=status
@@ -98,6 +113,30 @@ class ConfirmationDesignTests(TestCase):
                 reservation.refresh_from_db()
                 self.assertEqual(reservation.status, status)
                 reservation.delete()
+
+    # BR-06 / C02 evidence finding 2: expiry is bookkeeping and survives a refused change.
+    def test_expiry_survives_a_refused_confirmation_and_cancellation(self):
+        stale = Reservation.objects.create(
+            user=self.other_user,
+            resource=self.desk,
+            reservation_date=self.today - timedelta(days=1),
+            status=Reservation.Status.PENDING_APPROVAL,
+        )
+        rejected = Reservation.objects.create(
+            user=self.user, resource=self.desk, reservation_date=self.today, status=Reservation.Status.REJECTED
+        )
+
+        with self.assertRaises(ReservationError):
+            confirm_reservation(rejected)
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, Reservation.Status.EXPIRED)
+
+        stale.status = Reservation.Status.PENDING_APPROVAL
+        stale.save()
+        with self.assertRaises(ReservationError):
+            cancel_reservation(rejected, actor=self.user)
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, Reservation.Status.EXPIRED)
 
     # DD-5: when two confirmations race past the rule check, the DB index decides
     # and the loser gets the same ReservationError, not a database error.

@@ -34,15 +34,39 @@ def create_reservation(*, user, resource: Resource, reservation_date) -> Reserva
     the resource requires an approval decision (BR-05). Nothing is left in
     `DRAFT`, and a failed check leaves no reservation behind at all.
     """
+    # Expiry is bookkeeping, not part of this attempt: it is committed on its
+    # own, so a refused reservation does not roll it back (same as approvals).
+    expire_stale_approvals()
     with transaction.atomic():
         reservation = create_draft(user=user, resource=resource, reservation_date=reservation_date)
         return confirm_reservation(reservation)
 
 
-@transaction.atomic
+def lock_for_allocation(reservation: Reservation) -> Reservation:
+    """Reload the reservation and lock its row and its resource's row (C04, Q-1).
+
+    Locking the resource row is the authoritative point for BR-02 under
+    concurrency: two allocations of the same resource wait for each other, so
+    the second one sees the first one's CONFIRMED in ``ensure_can_allocate``.
+    The partial unique index stays as the last guard. Call inside a transaction.
+    """
+    return (
+        Reservation.objects.select_for_update(of=("self", "resource"))
+        .select_related("resource", "user")
+        .get(pk=reservation.pk)
+    )
+
+
 def confirm_reservation(reservation: Reservation) -> Reservation:
+    # Expiry runs outside the transaction below, so a refused confirmation
+    # does not roll it back (C02 evidence, finding 2).
     expire_stale_approvals()
-    reservation = Reservation.objects.select_for_update().select_related("resource", "user").get(pk=reservation.pk)
+    return _confirm(reservation)
+
+
+@transaction.atomic
+def _confirm(reservation: Reservation) -> Reservation:
+    reservation = lock_for_allocation(reservation)
 
     if reservation.status != Reservation.Status.DRAFT:
         raise ReservationError("Only draft reservations can be confirmed.")
@@ -84,9 +108,14 @@ def notify_after_commit(action: str, reservation: Reservation) -> None:
     transaction.on_commit(lambda: notify_reservation_event(action, reservation))
 
 
-@transaction.atomic
 def cancel_reservation(reservation: Reservation, *, actor) -> Reservation:
+    # Expiry runs outside the transaction below, like in confirm and approve.
     expire_stale_approvals()
+    return _cancel(reservation, actor=actor)
+
+
+@transaction.atomic
+def _cancel(reservation: Reservation, *, actor) -> Reservation:
     reservation = Reservation.objects.select_for_update().select_related("user").get(pk=reservation.pk)
 
     if reservation.user_id != actor.id:

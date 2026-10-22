@@ -4,7 +4,7 @@ from django.db.models import QuerySet
 from ..models import Reservation
 from .errors import ReservationError
 from .expiry import expire_stale_approvals
-from .lifecycle import allocate, notify_after_commit
+from .lifecycle import allocate, lock_for_allocation, notify_after_commit
 from .permissions import user_can_approve
 from .rules import ensure_can_allocate
 
@@ -37,7 +37,7 @@ def decide_approval(reservation: Reservation, *, actor, approve: bool) -> Reserv
 
 @transaction.atomic
 def _apply_approval_decision(reservation: Reservation, *, approve: bool) -> Reservation:
-    reservation = Reservation.objects.select_for_update().select_related("resource", "user").get(pk=reservation.pk)
+    reservation = lock_for_allocation(reservation)
 
     if reservation.status != Reservation.Status.PENDING_APPROVAL:
         raise ReservationError("Only a reservation waiting for approval can be decided.")

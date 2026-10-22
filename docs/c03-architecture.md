@@ -6,6 +6,7 @@ Od AS-IS implementace k přijaté architektuře pro scénář **potvrzení rezer
 - **Scénář:** OP-03 Confirm + OP-05 Approve pro zdroj s `requires_approval = True` (BR-05), včetně odloženého rozhodnutí a souběhu.
 - **Poznámka k baseline:** aplikace navíc realizuje týmové rozhodnutí v0.3 (rezervace jedním krokem). Architektura je proto psaná nad statechartem v0.2 a odchylka v0.3 je vedená jako nález v cross-view kontrole (viz „I. Cross-view kontrola").
 - Related: [`docs/architecture-and-decisions.md`](architecture-and-decisions.md) (AS-IS stack), [`docs/evidence-and-evolution.md`](evidence-and-evolution.md) (evidence).
+- **Baseline odkazů:** soubory a čísla řádků v tomto dokumentu platí pro tag `c03` (commit `cd4d180`). Od commitu `bf66ebb` je kód rozdělený do modulů podle prvků G2 (`services/` = Reservation Management, `availability/` = Availability, `integrations/` = Notification Integration); převodní tabulka je v change recordu „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md). Architektura (G1–G4, ADR-01) se tím nezměnila.
 
 ---
 
@@ -421,7 +422,7 @@ classDiagram
 | --- | --- | --- |
 | success path (žádost → schválení) | OK | `ApprovalTests.test_manager_approves_the_request`, `ApprovalViewTests` |
 | failure path (konflikt `BR-02` při schválení) | OK | `test_approval_rechecks_the_parking_rule`, `test_second_request_for_the_same_resource_and_day_cannot_be_approved` |
-| boundary / concurrency | OK | `test_parking_can_be_confirmed_after_desk`, souběžné potvrzení drží DB index |
+| boundary / concurrency | OK | `test_parking_can_be_confirmed_after_desk` (hranice BR-04). *Upřesněno v C06:* souběh tehdy žádný test nepokrýval; ověřuje ho až měření C04 (`test_quality_concurrency`, PostgreSQL) a test C05 `test_allocate_turns_a_lost_race_into_a_reservation_error`. Měření ukázalo, že souběh na PostgreSQL drží zámek řádku zdroje, index je pojistka. |
 | celý běžící set | **47 testů, `OK`** | `python manage.py test` |
 
 ## L2. Ověření architektonického pravidla

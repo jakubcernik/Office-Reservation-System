@@ -83,7 +83,57 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 
 **Remaining uncertainty / risk:** expirace jen při čtení (na stav se dá zapomenout); notifikace bez retry; `DRAFT` v běžném UI toku není pozorovatelný (v0.3); kapacita zdrojů stále neznámá z C01.
 
-**Commit/tag:** tag `c03` → commit `6880f85` (stav C03 včetně redesignu, před rozdělením do modulů). Odkazy na soubory a řádky v C03 platí vůči tomuto tagu; novější umístění viz change record „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md) (commit `bf66ebb`).
+**Commit/tag:** tag `c03` → commit `cd4d180` „C03“ (47 testů). Následující commit `6880f85` „redesign“ změnil jen UI a přidal 2 testy plánu kanceláře (49). Odkazy na soubory a řádky v C03 platí vůči tomuto tagu; novější umístění viz change record „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md) (commit `bf66ebb`).
+
+## C04 — Quality & Measurement
+
+*Zadání C04 tým nemá k dispozici. Sekce je postavená podle toho, co C04 hodnotí formulář C06 (Q1–Q3): quality concern → evaluable criterion → measurement → decision.*
+
+**Quality concern (Q-1): spolehlivost rezervace při souběhu.** Když víc lidí ve stejný okamžik zarezervuje stejný zdroj na stejný den, smí ho dostat právě jeden. Ostatní musí dostat srozumitelné odmítnutí a nesmí po nich nic zůstat. Zdroj: REQ-04, BR-02, driver D1 a otevřená otázka A8 z C03 („kde se dělá autoritativní rozhodnutí o konfliktu“).
+
+**Evaluable criterion:**
+
+| Položka | Hodnota |
+| --- | --- |
+| Zátěž | 20 uživatelů najednou rezervuje stejný stůl na stejný den přes `create_reservation` (stejná cesta jako tlačítko Reserve); všechna vlákna mají otevřené spojení a uvolní je jedna bariéra |
+| Opakování | 10 kol (každé na jiný den) |
+| Prostředí | PostgreSQL 15 (produkce běží na PostgreSQL/Supabase), lokální server, výchozí izolace READ COMMITTED |
+| **Vyhovuje, když** | v **každém** kole: právě 1 výsledek `CONFIRMED`, 19× `ReservationError`, žádná jiná výjimka, v DB pro ten zdroj a den právě 1 `CONFIRMED` a 0 `DRAFT` |
+| Nevyhovuje | jakékoli jiné rozdělení v kterémkoli kole |
+
+SQLite není deklarované prostředí (zapisovatele řadí zámkem celého souboru, měřil by jiný systém), proto se tam měření přeskočí.
+
+**Measurement:** `reservations/tests/test_quality_concurrency.py`, spuštění:
+
+```
+TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:54329/postgres \
+    python manage.py test reservations.tests.test_quality_concurrency
+```
+
+`TEST_DATABASE_URL` použije vlastní PostgreSQL server; test runner si na něm vytvoří a smaže vlastní testovací databázi (`settings.py`). Odmítnutí se počítají zvlášť podle toho, co pokus zastavilo: aplikační kontrola (`refused_by_check`), nebo DB index (`refused_by_index`, `ReservationError` vzniklá z `IntegrityError`).
+
+**Výsledky (22. 10. 2026):**
+
+| Běh | Co se měřilo | Výsledek po kolech | Kritérium |
+| --- | --- | --- | --- |
+| M0 | původní kód; první verze měření | 10/10 kol: 1 `CONFIRMED`, 19 `refused_by_check`, 0 `refused_by_index` | splněno, ale **index nezasáhl ani jednou** → podezření, že se pokusy vůbec nepotkaly |
+| — | sonda časů (dočasný test) | všech 20 vláken uvolněno do 4 ms, ale kontrolou prošlo jen první; ostatní čekaly až na jeho commit | příčina: `select_for_update().select_related("resource", "user")` generuje `... FOR UPDATE` bez `OF`, takže PostgreSQL zamkne i **řádek zdroje** a uživatele. Souběh tedy řadil vedlejší efekt dotazu, ne index |
+| A | kontrola: zamčený jen vlastní řádek (`of=("self",)`), index zachován | 10/10 kol: 1 `CONFIRMED`; index zachytil 2–18 pokusů za kolo | splněno – pokusy se opravdu potkávají a index funguje jako pojistka |
+| B | kontrola: zamčený jen vlastní řádek, index odstraněn | **4–17 `CONFIRMED` v každém kole** | **nesplněno** – samotná aplikační kontrola souběh neudrží; měření porušení odhalí |
+| M1 | výsledné řešení: explicitně zamčený řádek zdroje (`lock_for_allocation`) + index | 10/10 kol: 1 `CONFIRMED`, 19 `refused_by_check`, žádná jiná výjimka, 0 `DRAFT`; kolo trvá 32–49 ms (opakované běhy, mj. po přesunu expirace mimo transakci v C06) | **splněno** |
+
+Běhy A a B byly dočasné kontrolní testy (patch `lock_for_allocation`, odebrání constraintu v testovací DB); do repa se neukládají, protože B má z definice selhat. M1 je v repu a běží s celou sadou na PostgreSQL (66 testů, OK).
+
+**Trade-off / decision:**
+
+- **Rozhodnutí:** autoritativní místo pro BR-02 při souběhu je **zámek řádku zdroje** v `services/lifecycle.py` `lock_for_allocation` (`select_for_update(of=("self", "resource"))`), který používá potvrzení i schválení. Částečný unikátní index `unique_confirmed_resource_date` zůstává jako poslední pojistka (běh A) a jako jediná ochrana na SQLite a při ručních změnách v adminu. Tím je zodpovězená otázka A8 z C03.
+- **Proč explicitně:** dosud zámek zdroje vznikal jen jako vedlejší efekt `select_related`. Kdyby ho někdo při úpravě dotazu odebral, chování by se změnilo bez povšimnutí (běh A ukazuje, že by pak souběh držel jen index).
+- **Cena:** rezervace **téhož** zdroje se zpracují za sebou (20 souběžných pokusů ≈ 35–50 ms celkem). Rezervace různých zdrojů na sebe nečekají. Zámek uživatele, který dřív vznikal mimochodem, už se nebere.
+- **Opravená tvrzení:** baseline v0.3 („drží to index, ne kontrola před zápisem“), BR-02 a DD-5 v C05 popisovaly souběh nepřesně; upraveno v `docs/intent-and-change.md` a v sekci C05 v `docs/architecture-and-decisions.md`.
+
+**Zbývající nejistota:** měřeno na lokálním PostgreSQL 15, ne přímo na Supabase (sdílená data, test runner tam nesmí vytvářet DB); Supabase běží na PostgreSQL se stejnou sémantikou `FOR UPDATE` a READ COMMITTED. Výkon pod skutečnou síťovou latencí neměřen – kritérium se týká správnosti, ne rychlosti.
+
+**Commit/tag:** tag `c06` (viz sekce C06).
 
 ## C05 DD Verification Evidence
 
@@ -96,10 +146,11 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 | kontrakt `ensure_can_allocate` (DD-2) | při úspěchu nic nezmění | unit | `test_rule_check_passes_without_changing_the_reservation` |
 | větev algoritmu: pořadí kontrol (DD-3) | neaktivní zdroj se hlásí dřív než BR-04 | unit | `test_inactive_resource_is_reported_before_the_parking_rule` |
 | hranice BR-04 (DD-3) | nepočítá se cizí stůl, stůl na jiný den ani stůl jen `PENDING_APPROVAL` | unit | `test_parking_rule_ignores_desks_that_do_not_count` |
-| přechod stavu: jen z `DRAFT` (DD-1) | `CONFIRMED`/`CANCELLED`/`REJECTED` nejde potvrdit a stav se nezmění | unit | `test_only_a_draft_can_be_confirmed` |
+| přechod stavu: jen z `DRAFT` (DD-1) | `PENDING_APPROVAL`/`CONFIRMED`/`REJECTED`/`EXPIRED`/`CANCELLED` nejde potvrdit a stav se nezmění *(PENDING_APPROVAL a EXPIRED doplněny v C06)* | unit | `test_only_a_draft_can_be_confirmed` |
 | přechod stavu: větev schválení (DD-4) | obsazený zdroj nejde ani požádat o schválení | component | `test_taken_resource_cannot_be_requested_for_approval` |
 | přechod stavu: `DRAFT → PENDING_APPROVAL` | zdroj se schválením nevytvoří `CONFIRMED` | component | `test_flagged_resource_results_in_a_request_instead` (existující) |
-| failure: souběh (DD-5) | prohraný souběh = `ReservationError`, zůstane jedna `CONFIRMED` | component | `test_allocate_turns_a_lost_race_into_a_reservation_error` |
+| failure: souběh (DD-5) | prohraný souběh = `ReservationError`, zůstane jedna `CONFIRMED` (pojistka indexem) | component | `test_allocate_turns_a_lost_race_into_a_reservation_error` |
+| souběh: zámek zdroje (DD-5, doplněno v C06) | 20 souběžných pokusů → právě 1 `CONFIRMED`, zbytek `ReservationError` | component (PostgreSQL) | `test_quality_concurrency.test_one_winner_per_resource_and_day` (měření C04) |
 | failure: notifikace (DD-6, D3) | selhání doručení nezmění `CONFIRMED` | component | `test_failed_notification_keeps_the_reservation_confirmed` |
 | spolupráce s notifikací (DD-6) | notifikace až po commitu | component | `test_notification_waits_for_the_commit` |
 | spolupráce s notifikací (DD-6) | při rollbacku se nic neoznámí | component | `test_rolled_back_confirmation_is_not_announced` |
@@ -127,10 +178,10 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 | DD-2 čistá kontrola pravidel | YES | `rules.py` `ensure_can_allocate` | keep |
 | DD-3 pořadí kontrol a hranice BR-04 | YES | `rules.py` | keep |
 | DD-4 pravidla před větví schválení | YES | `lifecycle.py` | keep |
-| DD-5 souběh přes DB index | YES | `allocate` + `unique_confirmed_resource_date` | keep |
+| DD-5 souběh: zámek zdroje + DB index *(v C05 jen index; přepsáno v C06 podle měření C04)* | YES | `lock_for_allocation` + `allocate` + `unique_confirmed_resource_date`; testy `test_quality_concurrency` a `test_allocate_turns_a_lost_race_into_a_reservation_error` | keep |
 | **DD-6 notifikace až po commitu** | **NO** (před změnou) | `notify_reservation_event` se volalo uvnitř `@transaction.atomic`, tedy před commitem. Odporovalo to i H1 z C03 (commit → notify). Testy `test_notification_waits_for_the_commit` a `test_rolled_back_confirmation_is_not_announced` na původním kódu **padaly** (notifikace odešla i při rollbacku). | **update code**: `notify_after_commit` přes `transaction.on_commit`, použito u potvrzení, žádosti, schválení, zamítnutí i zrušení |
 | DD-7 nic po chybě | YES | `create_reservation` v `transaction.atomic` | keep |
-| vlastník potvrzuje jen svou rezervaci | PARTLY | kontrola je ve view `confirm_reservation_view`, ne ve službě (`cancel_reservation` ji má ve službě s `actor`) | **deferred**: služba se dnes volá jen z tohoto view a z `create_reservation` (vždy vlastník). Přesun by změnil podpis použitý v 15 testech a v `seed_demo_data`. Vedeno jako riziko. |
+| vlastník potvrzuje jen svou rezervaci | PARTLY | kontrola je ve view `confirm_reservation_view`, ne ve službě (`cancel_reservation` ji má ve službě s `actor`) | **deferred**: služba se dnes volá jen z tohoto view a z `create_reservation` (vždy vlastník). Přesun by změnil podpis použitý v 16 testech a v `seed_demo_data`. Vedeno jako riziko. |
 | H2 z C03: `ReservationRepository`, `Reservation.confirm()` | NO | v kódu není repository ani metody na entitě | **update design**: DD platí pro tuto jednotku, persistence je přímo ORM a logika ve funkcích služby; H2 zůstává jako záznam C03 |
 
 **Resolution:** DD-6 opraven v kódu (`reservations/services/lifecycle.py` `notify_after_commit`, `reservations/services/approvals.py`). Po opravě prochází všech 58 testů a architektonické kontroly RULE-1 a RULE-2 dál platí.
@@ -142,3 +193,38 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 - chyby se rozlišují jen textem hlášky, ne kódem.
 
 **Commit/tag:** tag `c05` (commit „C05 Detailed Design: Confirm Reservation“, navazuje na `bf66ebb`).
+
+## C06 Internal Evidence Assessment
+
+**Assessed baseline:** tag `c06` (stav po opravách níže). Testy: `python manage.py test` → 66 testů OK (1 přeskočen: měření C04 patří na PostgreSQL); na PostgreSQL 15 přes `TEST_DATABASE_URL` → 66 testů OK. Předávací údaje: `README.md`, sekce „Assessment handover (C06)“.
+
+**Self-check před předáním** (tým prošel vlastní projekt checklistem C06; každý bod byl ověřen spuštěním nebo dočasným testem):
+
+| Nález (checklist) | Ověření | Akce |
+| --- | --- | --- |
+| B1 – evidence C02 uvádí tag `v0.2`, který neexistoval | `git tag`, `git ls-remote --tags` | tag `v0.2` vytvořen na merge `e90a2af` (obsahuje oba commity „approval process v0.2“) |
+| B2 – příkaz z README `…WalkingSkeletonReservationCreateTests` končil chybou; walking skeleton CP1 nebyl implementovaný | spuštění příkazu | implementován `POST /reservations` + `WalkingSkeletonReservationCreateTests` (3 testy), README opraven |
+| R5 – C02 uvádí jako spuštěné příklady „neplatné datum → dnešek“ a „cizí potvrzení → 403“, test pro ně nebyl | dočasný test: chování správné, chyběl doklad | doplněny `test_invalid_date_falls_back_to_today`, `test_confirming_someone_elses_reservation_is_forbidden` |
+| R5/A – „souběh je pokryt testem“ (C02, C03 L1), žádný takový test nebyl | inspekce testů | měření C04 + odkazy opraveny |
+| A/C02 – tvrzení „souběh drží index“ (v0.3, BR-02, DD-5) neodpovídá chování na PostgreSQL | měření C04 + sonda časů + kontrolní běhy A/B | zámek zdroje explicitní (`lock_for_allocation`), tvrzení opravena |
+| D5 – pořadí kontrol v DD-3 a testu se lišilo od diagramů aktivit OP-03/OP-05 v C02 | porovnání diagramu s kódem | kód a DD sjednoceny se specifikací (aktivní → obsazenost → parkování), nový test `test_conflict_is_reported_before_the_parking_rule` |
+| R2 – BR-04 nebylo jednoznačné, zda platí i po zrušení stolu | dočasný test: parkování zůstane `CONFIRMED` | v BR-04 upřesněn rozsah (podmínka v okamžiku potvrzení/schválení), chování beze změny |
+| Q1–Q3 – C04 chyběl | – | doplněna sekce „C04 — Quality & Measurement“ |
+| B1 – odkazy na soubory/řádky v C03 neodpovídají současnému rozložení | inspekce | v C03 a Části A uvedeno, že platí pro tag `c03`; převodní tabulka v change recordu |
+| D4 – DD-1 nebylo ověřeno pro `PENDING_APPROVAL` a `EXPIRED` *(nezávislá kontrola)* | dočasný test: chování správné, doklad chyběl | oba stavy doplněny do `test_only_a_draft_can_be_confirmed` |
+| C02/C05 – potvrzení a zrušení spouštěly expiraci uvnitř své transakce, takže ji odmítnutí vrátilo (stejná chyba, kterou C02 evidence nález 2 opravila u schválení) *(nezávislá kontrola)* | dočasný test na SQLite i PostgreSQL | expirace přesunuta před transakci v `confirm_reservation`, `cancel_reservation` a `create_reservation`; test `test_expiry_survives_a_refused_confirmation_and_cancellation`; DD sekvence a pseudokód upraveny |
+| D2 – evidence C05 u DD-5 uváděla jen index | porovnání s přepsaným DD-5 | řádky DD-5 doplněny o zámek zdroje a měření C04 |
+| B1 – odkazy na řádky a „47 testů“ v C03 patří commitu `cd4d180`, ne `6880f85` *(nezávislá kontrola)* | `git show cd4d180:reservations/services.py` | tag `c03` přesunut na `cd4d180`, texty opraveny |
+| docs ↔ kód – tři místa tvrdila „testy vždy na SQLite“ | grep | přeformulováno (výchozí SQLite, volitelně `TEST_DATABASE_URL`) |
+
+**Verified findings:** *doplní hodnotící tým (max. 3).*
+
+**Owner disposition:** *doplní tým po obdržení nálezů.*
+
+**Actions / justified no-change decisions:** viz self-check výše; další podle nálezů.
+
+**Remaining evidence gaps:**
+- C04 nemá k dispozici původní zadání; sekce sleduje strukturu Q1–Q3 z formuláře C06.
+- Měření C04 běželo na lokálním PostgreSQL 15, ne přímo na Supabase.
+- Kontrola vlastníka při potvrzení je ve view, ne ve službě (C05, odloženo).
+- Notifikace nemají retry (ADR-01, přijatý důsledek).

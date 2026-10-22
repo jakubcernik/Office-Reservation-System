@@ -21,16 +21,12 @@ def user_has_confirmed_desk(user, reservation_date) -> bool:
 def ensure_can_allocate(reservation: Reservation) -> None:
     """Raise ``ReservationError`` when the resource cannot be given to the reservation.
 
-    Checks, in this order: the resource is active, parking has a confirmed desk
-    for the same user and day (BR-04), and no other reservation holds the
-    resource for that day (BR-02).
+    Checks in the order of the OP-03 and OP-05 activity diagrams (C02): the
+    resource is active, no other reservation holds the resource for that day
+    (BR-02), and parking has a confirmed desk for the same user and day (BR-04).
     """
     if not reservation.resource.is_active:
         raise ReservationError("The selected resource is no longer active.")
-
-    if reservation.resource.resource_type == Resource.ResourceType.PARKING_SPOT:
-        if not user_has_confirmed_desk(reservation.user, reservation.reservation_date):
-            raise ReservationError("Parking requires a confirmed desk reservation for the same date.")
 
     if Reservation.objects.filter(
         resource=reservation.resource,
@@ -38,3 +34,7 @@ def ensure_can_allocate(reservation: Reservation) -> None:
         status=Reservation.Status.CONFIRMED,
     ).exclude(pk=reservation.pk).exists():
         raise ReservationError("The selected resource is already confirmed for that date.")
+
+    if reservation.resource.resource_type == Resource.ResourceType.PARKING_SPOT:
+        if not user_has_confirmed_desk(reservation.user, reservation.reservation_date):
+            raise ReservationError("Parking requires a confirmed desk reservation for the same date.")

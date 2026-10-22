@@ -75,14 +75,21 @@ ASGI_APPLICATION = "office_reservation_system.asgi.application"
 #
 # - DATABASE_URL set   -> PostgreSQL (Supabase)
 # - DATABASE_URL empty -> local SQLite file, so a fresh clone still runs
-# - tests              -> always SQLite, because the test runner has to create
+# - tests              -> SQLite by default (or TEST_DATABASE_URL, see below), because the test runner has to create
 #                         and drop a throwaway database, which is not possible
 #                         on Supabase and would touch shared data.
 # ---------------------------------------------------------------------------
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
 
-USE_SQLITE = not DATABASE_URL or RUNNING_TESTS or _env_bool("DJANGO_USE_SQLITE")
+# Tests may run on a PostgreSQL server of your own (for example the C04
+# concurrency measurement). The test runner creates and drops its own test
+# database there; never point this at Supabase or other shared data.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip() if RUNNING_TESTS else ""
+if TEST_DATABASE_URL:
+    DATABASE_URL = TEST_DATABASE_URL
+
+USE_SQLITE = not DATABASE_URL or (RUNNING_TESTS and not TEST_DATABASE_URL) or _env_bool("DJANGO_USE_SQLITE")
 
 if USE_SQLITE:
     DATABASES = {

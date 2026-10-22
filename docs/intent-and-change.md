@@ -130,7 +130,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Předpoklad:** Nevyzvednuté návrhy nikoho neblokují, proto se neuklízejí a nemají expiraci.
 
-**Implementace:** `services.create_draft`; v uživatelském rozhraní ji od baseline v0.3 vyvolává `create_reservation` přes `POST /reservations/create/` (viz „Baseline v0.3“ níže).
+**Implementace:** `reservations/services/lifecycle.py` `create_draft`; v uživatelském rozhraní ji od baseline v0.3 vyvolává `create_reservation` přes `POST /reservations/create/` (viz „Baseline v0.3“ níže). Přímo jako `DRAFT` ji vytváří JSON endpoint walking skeletonu `POST /reservations` (CP1, README).
 
 ## OP-02 — Zjištění dostupnosti (Check Availability)
 
@@ -164,7 +164,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Zdůvodnění / zdroj:** Stejná definice „blokuje“ jako v OP-03 (BR-02). Kdyby dostupnost považovala za blokující i `DRAFT`, uživatel by u zdroje viděl obsazeno, i když si ho ještě nikdo nezajistil.
 
-**Implementace:** `services.available_resources_for_date`, `views.availability`, URL `GET /`.
+**Implementace:** `reservations/availability/queries.py` `available_resources_for_date`, `reservations/web/views/availability.py` `availability`, URL `GET /`.
 
 ## OP-03 — Potvrzení rezervace (Confirm Reservation)
 
@@ -206,9 +206,9 @@ Kde se co nachází (mapování na zadání C02):
 
 **Zdůvodnění / zdroj:** Potvrzení je okamžik, kdy vzniká alokace. Proto jsou všechny kontroly kolizí až zde, ne při vytváření (viz OP-01).
 
-**Předpoklad:** Oznámení je dnes jen záznam do logu (`services.notify_reservation_event`), nikoli skutečná externí služba — architektonický driver pro C03.
+**Předpoklad:** Oznámení je dnes jen záznam do logu (`notify_reservation_event`, od C03 v `reservations/integrations/notifications.py`), nikoli skutečná externí služba — architektonický driver pro C03.
 
-**Implementace:** `services.confirm_reservation` (v transakci, se zámkem řádku), `views.confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
+**Implementace:** `reservations/services/lifecycle.py` `confirm_reservation` (v transakci, se zámkem řádku rezervace a zdroje), `reservations/web/views/reservations.py` `confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
 
 ## OP-04 — Zrušení rezervace (Cancel Reservation)
 
@@ -246,7 +246,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Předpoklad:** Časová hranice rušení se nevyhodnocuje, protože celodenní rezervace nemá definovaný čas začátku (přijaté zjednodušení, viz BR-01 a BR-03).
 
-**Implementace:** `services.cancel_reservation`, `views.cancel_reservation_view`, URL `POST /reservations/<pk>/cancel/`.
+**Implementace:** `reservations/services/lifecycle.py` `cancel_reservation`, `reservations/web/views/reservations.py` `cancel_reservation_view`, URL `POST /reservations/<pk>/cancel/`.
 
 ## Doménová pravidla a invarianty
 
@@ -258,7 +258,7 @@ Pravidla platí napříč operacemi, proto jsou definovaná **jen zde** a jednot
 
 > **BR-02 — Invariant exkluzivity zdroje**
 > V žádném okamžitém stavu nesmí existovat dvě potvrzené rezervace stejného zdroje na stejný den. Zdroj pro ostatní blokuje **pouze** stav `CONFIRMED`; `DRAFT` ani `CANCELLED` dostupnost nemění.
-> *Vynucení:* kontrola ve službě `confirm_reservation` **a** částečný unikátní index `unique_confirmed_resource_date` (`status = 'CONFIRMED'`) v databázi, který pravidlo drží i při souběžných požadavcích.
+> *Vynucení:* kontrola ve službě (`ensure_can_allocate`) pod zámkem řádku zdroje (`lock_for_allocation`), takže souběžná přidělení téhož zdroje jdou za sebou, **a** částečný unikátní index `unique_confirmed_resource_date` (`status = 'CONFIRMED'`) v databázi jako poslední pojistka. Ověřeno měřením C04 (`docs/evidence-and-evolution.md`).
 
 > **BR-03 — Politika rušení**
 > Zrušit lze rezervaci ve stavu `DRAFT` nebo `CONFIRMED`, a to pouze její vlastník. Zrušení je nevratné (`CANCELLED` je koncový stav) a opakované zrušení je odmítnuto. Čas se nevyhodnocuje.
@@ -266,7 +266,8 @@ Pravidla platí napříč operacemi, proto jsou definovaná **jen zde** a jednot
 
 > **BR-04 — Parkovací místo vyžaduje potvrzený stůl** (doménové pravidlo z C01)
 > Parkovací místo lze potvrdit jen tehdy, když má stejný uživatel na stejný den už potvrzený stůl.
-> *Vynucení:* `user_has_confirmed_desk` uvnitř `confirm_reservation`.
+> *Vynucení:* `user_has_confirmed_desk` uvnitř `ensure_can_allocate` (`reservations/services/rules.py`), volané při potvrzení i schválení.
+> *Rozsah (upřesněno v C06):* pravidlo je podmínka **v okamžiku potvrzení / schválení**. Pozdější zrušení stolu už potvrzené parkovací místo neruší; nový stav se pak kontroluje jen u dalších potvrzení a schválení (proto OP-05 odmítne schválit parkování po zrušení stolu).
 > *Neznámá:* C01 zmiňuje i variantu „nebo současně v jedné transakci vytváří“ — aplikace nepotvrzuje více rezervací najednou, proto tato část zatím nemá chování. TBD pro případ přidání košíku.
 
 ## Kontrola přijetí požadavků
@@ -279,9 +280,9 @@ Otázky ze zadání jsme neopisovali pod každý požadavek; odpovědi platí pr
 | **Potřeba / zdůvodnění** | Každá operace má sekci „Zdůvodnění“. REQ-04 (souběh) neexistuje „pro jistotu“: bez něj by dva souběžné požadavky mohly vytvořit dvojí alokaci téhož zdroje. |
 | **Pozorovatelný výsledek** | REQ-01…REQ-06 popisují pozorovatelný výsledek (stav rezervace, obsah výpisu dostupnosti), ne způsob implementace. Výjimkou jsou názvy stavů, které jsou součástí doménového modelu už z C01. |
 | **Proveditelnost** | Požadavky jsou splnitelné společně: jediné, co blokuje, je `CONFIRMED`, a k `CONFIRMED` vede jediná cesta přes kontroly v OP-03. |
-| **Ověřitelnost** | Každá operace má příklady ověření a všechny byly spuštěny (viz `docs/evidence-and-evolution.md`). Souběh v REQ-04 je pokryt testem, který simuluje dvě potvrzení. |
+| **Ověřitelnost** | Každá operace má příklady ověření a všechny byly spuštěny (viz `docs/evidence-and-evolution.md`). Souběh v REQ-04 ověřuje měření C04 (`test_quality_concurrency`, 20 souběžných pokusů × 10 kol na PostgreSQL) a test C05 `test_allocate_turns_a_lost_race_into_a_reservation_error`. *(Upřesněno v C06: v baseline v0.1 takový test ještě neexistoval.)* |
 | **Stav / čas** | Význam závisí na stavu rezervace a na dni. Hranice uvnitř dne neexistuje (BR-01), takže se nikde nevyhodnocuje čas — to je vědomé zjednodušení, ne opomenutí. |
-| **Souběh** | REQ-04 + BR-02: dvě souběžná potvrzení téhož zdroje na stejný den → nejvýše jedno `CONFIRMED`; drží databázový index, ne jen kontrola v aplikaci. |
+| **Souběh** | REQ-04 + BR-02: dvě souběžná potvrzení téhož zdroje na stejný den → nejvýše jedno `CONFIRMED`; drží zámek řádku zdroje a databázový index, ne jen kontrola v aplikaci (měření C04). |
 | **Konzistence** | Zkontrolováno v sekci 10 níže, včetně nalezeného rozporu mezi textem a kódem. |
 | **Nejistota** | Kapacita zdrojů zůstává neznámou z C01 (systém kapacitu neřeší). Oznámení je stub. Varianta „nebo současně v jedné transakci“ u BR-04 je TBD. Nic z toho není potichu domyšlené. |
 
@@ -296,7 +297,7 @@ Otázky ze zadání jsme neopisovali pod každý požadavek; odpovědi platí pr
 | Diagram případů užití vs. text | **V pořádku.** Čtyři cíle pro čtyři operace, žádný cíl bez specifikovaného chování. |
 | Požadavek vs. návrhové rozhodnutí | **Rozlišeno.** Použití PostgreSQL (Supabase) není požadavek na chování, ale architektonické rozhodnutí s vlastním záznamem v `docs/architecture-and-decisions.md`. Specifikace žádnou technologii nepředepisuje. |
 | Nejistota vs. vymyšlená přesnost | Kapacita zůstává TBD. Konkrétní hodnoty (např. lhůta schválení v části B) pocházejí z rozhodnutí týmu, ne z odhadu nástroje. |
-| Dokumentace vs. realita | **Nalezený nesoulad:** `README.md` uvádí test `WalkingSkeletonReservationCreateTests` z definice CP1, který v repu zatím není. Podle README je jeho implementace plánovaná na C03 — do té doby jde o známý rozdíl, ne o chybějící prvek C02. |
+| Dokumentace vs. realita | **Nalezený nesoulad:** `README.md` uvádí test `WalkingSkeletonReservationCreateTests` z definice CP1, který v repu zatím není. Podle README je jeho implementace plánovaná na C03 — do té doby jde o známý rozdíl, ne o chybějící prvek C02. *Vyřešeno v C06:* endpoint i test existují (`reservations/web/views/api.py`, `reservations/tests/test_walking_skeleton.py`). |
 
 ## 9a Diagram případů užití — aktéři a cíle
 
@@ -508,7 +509,7 @@ Mění se jen to, co změna skutečně zasahuje. Vše ostatní platí z v0.1.
 
 **Zdůvodnění / zdroj:** Zadání změny C02 („schválení může být opožděno, zamítnuto nebo může vypršet“). Schválení je nový okamžik alokace, proto se v něm pravidla ověřují znovu (BR-07) — mezi požádáním a rozhodnutím se totiž stav světa mohl změnit.
 
-**Implementace:** `services.decide_approval` (schválit/zamítnout), `services.expire_stale_approvals`, `views.approvals`, URL `GET /approvals/` a `POST /approvals/<pk>/`.
+**Implementace:** `reservations/services/approvals.py` `decide_approval` (schválit/zamítnout), `reservations/services/expiry.py` `expire_stale_approvals`, `reservations/web/views/approvals.py`, URL `GET /approvals/` a `POST /approvals/<pk>/`.
 
 ### Aktualizovaný stavový diagram (v0.2)
 
@@ -577,7 +578,7 @@ flowchart LR
 2. **Čas bez časovače.** Vypršení žádostí (BR-06) se vyhodnocuje při čtení. Je to jednoduché, ale roste riziko, že se na stav „čeká na vypršení“ zapomene. C03: patří časová logika do doménové služby, nebo potřebujeme plánovač?
 3. **Pravidlo na dvou místech.** BR-02 je vynucené v aplikaci i v databázi. Duplikace je záměrná (databáze drží souběh), ale C03 musí vysvětlit, které vynucení je primární, a držet je v souladu.
 4. **Dvě role a jedna kontrola oprávnění.** Vzniká druhá role (Office Manager). Dnes by se oprávnění kontrolovalo na více místech — C03 má rozhodnout, kde je jediné místo pro rozhodnutí „smí tento uživatel schvalovat“.
-5. **Walking skeleton z CP1 není hotový.** `POST /reservations` s odpovědí `201` a JSON tělem (definice v README) v aplikaci chybí, stejně jako test `WalkingSkeletonReservationCreateTests`. Patří do C03.
+5. **Walking skeleton z CP1 není hotový.** `POST /reservations` s odpovědí `201` a JSON tělem (definice v README) v aplikaci chybí, stejně jako test `WalkingSkeletonReservationCreateTests`. Patří do C03. *(V C03 nebyl zpracován; doplněno v C06.)*
 6. **Nový stav = nová kombinace.** Stavy `REJECTED` a `EXPIRED` jsou koncové a nesmí se z nich potvrzovat ani zrušovat. C03: jak zajistit, aby se pravidla o povolených přechodech nedala obejít na jiném místě kódu.
 
 ---
@@ -602,6 +603,6 @@ flowchart LR
 - OP-04, OP-05 a BR-01…BR-07 — mění se jen to, že na začátku stojí potvrzená rezervace místo návrhu; politika rušení i schvalování zůstávají doslova stejné.
 - **Stav `DRAFT` i operace Confirm zůstávají v modelu a ve specifikaci.** Jsou to dvě ze čtyř základních operací a Project Frame uvádí `DRAFT` jako výchozí stav; zároveň by jejich zrušením zmizela část, která se má v C02 hodnotit. Rozhraní je v běžném toku nespojuje do dvou kroků, ale obojí zůstává dosažitelné přes službu a přes Django admin (rezervace založená jako `DRAFT` se dá později potvrdit), takže se to dá i nadále předvést a ověřit.
 
-**Důsledek pro souběh:** dvě souběžná kliknutí na stejný zdroj a den skončí tak, že druhé ohlásí chybu a neuloží nic. Drží to částečný unikátní index `unique_confirmed_resource_date`, ne kontrola před zápisem.
+**Důsledek pro souběh:** dvě souběžná kliknutí na stejný zdroj a den skončí tak, že druhé ohlásí chybu a neuloží nic. *(Opraveno podle měření C04:)* na PostgreSQL to drží zámek řádku zdroje — druhé kliknutí počká na první a odmítne ho kontrola BR-02; částečný unikátní index `unique_confirmed_resource_date` je poslední pojistka a jediná ochrana na SQLite.
 
 **Doplnění kontroly konzistence:** řádek „Create vs. Confirm“ už není nález, ale **popsaná politika** — Create sám nealokuje, alokaci provede Confirm vyvolaný ve stejné transakci.

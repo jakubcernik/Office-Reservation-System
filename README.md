@@ -11,6 +11,7 @@ A first-version Django application for office desks and parking spot reservation
 - Django admin for resource and reservation management
 - Approval flow for resources that need an office manager's decision
 - Core business rule: parking confirmation requires a confirmed desk reservation for the same date
+- JSON endpoint `POST /reservations` (CP1 walking skeleton)
 
 ## CP1 walking skeleton (C02 definition)
 
@@ -61,13 +62,13 @@ This section defines one concrete end-to-end path that must be runnable after C0
 - test asserts `201` response and `reservation_id` in JSON
 - test verifies the reservation row exists in DB with matching user/resource/date
 
-Suggested command:
+Command:
 
-```powershell
-py manage.py test reservations.tests.WalkingSkeletonReservationCreateTests
+```
+python manage.py test reservations.tests.test_walking_skeleton
 ```
 
-Status in C02: this is the agreed, concrete walking skeleton definition. Full implementation is planned for C03.
+Status: defined in C02, implemented in C06 (it was planned for C03 but not done there). Endpoint: `reservations/web/views/api.py`, test class `WalkingSkeletonReservationCreateTests` in `reservations/tests/test_walking_skeleton.py`. It uses the normal session login; a browser client has to send the CSRF token like any other form. Persistence is the configured database (SQLite locally, PostgreSQL when `DATABASE_URL` is set).
 
 ## Local setup
 
@@ -95,6 +96,18 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+On macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_demo_data
 python manage.py createsuperuser
 python manage.py runserver
 ```
@@ -151,7 +164,7 @@ Notes:
 - A password with characters like `[`, `]`, `@`, `#`, `:` or `/` has to be percent-encoded inside the URL, for example `[` becomes `%5B`. A password of only letters and digits avoids the problem completely.
 - Prefer the **session pooler** string (host `*.pooler.supabase.com`, port `5432`). It works over IPv4. On the transaction pooler (port `6543`) PgBouncer cannot keep server-side cursors open; `settings.py` detects that and sets `DISABLE_SERVER_SIDE_CURSORS` for you.
 - Supabase requires TLS. `settings.py` adds `sslmode=require` for remote hosts, so the connection string does not need to carry it.
-- `python manage.py test` always runs on SQLite: the test runner creates and drops a throwaway database, which Supabase does not allow.
+- `python manage.py test` runs on SQLite by default: the test runner creates and drops a throwaway database, which Supabase does not allow. To test on PostgreSQL use your own server via `TEST_DATABASE_URL` (see "Run tests").
 
 To check which database is used right now:
 
@@ -171,9 +184,17 @@ A reservation can still be created as a draft (service layer or Django admin) an
 
 ## Run tests
 
-```powershell
+```
 python manage.py test
 ```
+
+The default run uses SQLite. The C04 concurrency measurement (`reservations.tests.test_quality_concurrency`) needs PostgreSQL and is skipped on SQLite. To run it, or the whole suite, on a PostgreSQL server of your own (never the shared Supabase database):
+
+```
+TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres python manage.py test
+```
+
+The test runner creates and drops its own `test_...` database on that server.
 
 ## Seed demo data
 
@@ -205,7 +226,7 @@ reservations/
 │   └── errors.py
 ├── availability/    read model: free resources, floor plan
 ├── integrations/    notifications.py — notification boundary (best-effort delivery)
-├── web/             forms, context processor, views/ (auth, availability, reservations, approvals)
+├── web/             forms, context processor, views/ (auth, availability, reservations, approvals, api)
 ├── tests/           one test module per unit + test_architecture.py
 ├── templates/, static/, migrations/, management/commands/
 └── urls.py, admin.py
@@ -214,3 +235,17 @@ reservations/
 Code outside `services/` imports the public API from `reservations.services`, not from its modules.
 
 Architecture rules from C03 are protected by `reservations/tests/test_architecture.py`; see [`docs/c03-architecture.md`](docs/c03-architecture.md).
+
+## Assessment handover (C06)
+
+| Item | Value |
+| --- | --- |
+| Project | Office Reservation System |
+| Assessed tag | `c06` |
+| How to build / run | see "Local setup" (Windows) or the macOS / Linux block below it |
+| How to run tests | `python manage.py test` (SQLite); C04 measurement on PostgreSQL via `TEST_DATABASE_URL`, see "Run tests" |
+| C02 artifacts | `docs/intent-and-change.md`; evidence in `docs/evidence-and-evolution.md` ("Evidence C02") |
+| C03 artifacts | `docs/c03-architecture.md`, Part A in `docs/architecture-and-decisions.md`; file/line references there belong to tag `c03` |
+| C04 evidence | `docs/evidence-and-evolution.md` ("C04 — Quality & Measurement"), `reservations/tests/test_quality_concurrency.py` |
+| C05 artifacts | `docs/architecture-and-decisions.md` ("C05 Detailed Design"), evidence in `docs/evidence-and-evolution.md`, tests in `reservations/tests/test_confirmation_dd.py` |
+| Architecture rule check | `reservations/tests/test_architecture.py` |
