@@ -428,18 +428,20 @@ classDiagram
 
 ```
 Architektonické pravidlo (RULE-1):
-Pouze Reservation Management (reservations/services.py) smí měnit stav
+Pouze Reservation Management (balík reservations/services/) smí měnit stav
 životního cyklu Reservation.status. Žádný jiný aplikační modul nesmí
 přiřadit .status ani volat create/update s parametrem status.
 
 Kontrola:
-reservations/tests_architecture.py — AST sken modulů aplikace
+reservations/tests/test_architecture.py — AST sken modulů aplikace
+(původně reservations/tests_architecture.py nad services.py, viz change record
+„modules split by architecture element" v architecture-and-decisions.md)
 
 Výsledek:
 OK (viz M — Evidence)
 ```
 
-Druhé pravidlo ze stejného ADR (RULE-2): doručení notifikace smí definovat pouze `reservations/notifications.py`. Kontrolováno stejným testem.
+Druhé pravidlo ze stejného ADR (RULE-2): doručení notifikace smí definovat pouze `reservations/integrations/notifications.py`. Kontrolováno stejným testem.
 
 ---
 

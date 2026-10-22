@@ -191,12 +191,26 @@ py manage.py seed_demo_data --demo-user jakub
 
 ## Main app modules
 
-- `reservations/models.py`
-- `reservations/services.py` — owns every `Reservation` lifecycle state change
-- `reservations/notifications.py` — notification integration boundary (best-effort delivery)
-- `reservations/views.py`
-- `reservations/forms.py`
-- `reservations/templates/`
-- `reservations/static/`
+The directories follow the architecture elements from C03 (G2):
 
-Architecture rules from C03 are protected by `reservations/tests_architecture.py`; see [`docs/c03-architecture.md`](docs/c03-architecture.md).
+```
+reservations/
+├── models/          resource.py, reservation.py
+├── services/        Reservation Management — owns every Reservation lifecycle state change
+│   ├── lifecycle.py     create / confirm / cancel
+│   ├── approvals.py     approve / reject, pending requests
+│   ├── expiry.py        PENDING_APPROVAL → EXPIRED on read (BR-06)
+│   ├── rules.py         allocation rules shared by confirm and approve (BR-02, BR-04)
+│   ├── permissions.py   who is an office manager
+│   └── errors.py
+├── availability/    read model: free resources, floor plan
+├── integrations/    notifications.py — notification boundary (best-effort delivery)
+├── web/             forms, context processor, views/ (auth, availability, reservations, approvals)
+├── tests/           one test module per unit + test_architecture.py
+├── templates/, static/, migrations/, management/commands/
+└── urls.py, admin.py
+```
+
+Code outside `services/` imports the public API from `reservations.services`, not from its modules.
+
+Architecture rules from C03 are protected by `reservations/tests/test_architecture.py`; see [`docs/c03-architecture.md`](docs/c03-architecture.md).

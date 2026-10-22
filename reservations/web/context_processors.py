@@ -1,6 +1,6 @@
 from django.http import HttpRequest
 
-from .services import user_can_approve
+from ..services import user_can_approve
 
 
 def navigation(request: HttpRequest) -> dict[str, bool]:

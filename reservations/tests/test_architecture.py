@@ -12,27 +12,34 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-APP_ROOT = Path(__file__).resolve().parent
+APP_ROOT = Path(__file__).resolve().parent.parent
 
-#: The only module allowed to change the Reservation lifecycle state (RULE-1).
-LIFECYCLE_OWNER = "services.py"
+#: The only package allowed to change the Reservation lifecycle state (RULE-1).
+LIFECYCLE_OWNER = Path("services")
 
 #: The only module allowed to define notification delivery (RULE-2).
-NOTIFICATION_OWNER = "notifications.py"
+NOTIFICATION_OWNER = Path("integrations") / "notifications.py"
 
 _EXCLUDED_DIRS = {"migrations", "__pycache__"}
 _STATUS_MUTATING_METHODS = {"create", "update", "update_or_create", "bulk_update"}
 
 
-def _application_modules():
-    """Application .py files, without the owner modules, tests and migrations."""
+def _all_modules():
+    """Application .py files, without tests and migrations."""
     for path in sorted(APP_ROOT.rglob("*.py")):
         rel = path.relative_to(APP_ROOT)
         if any(part in _EXCLUDED_DIRS for part in rel.parts):
             continue
         if rel.parts[0].startswith("tests"):
             continue
-        if path.name in {LIFECYCLE_OWNER, NOTIFICATION_OWNER}:
+        yield path
+
+
+def _application_modules():
+    """Application modules outside the lifecycle owner and the notification boundary."""
+    for path in _all_modules():
+        rel = path.relative_to(APP_ROOT)
+        if rel.parts[0] == LIFECYCLE_OWNER.name or rel == NOTIFICATION_OWNER:
             continue
         yield path
 
@@ -64,9 +71,9 @@ def _status_mutations(tree):
 
 
 class LifecycleOwnershipTests(SimpleTestCase):
-    """RULE-1: only Reservation Management (services.py) changes the lifecycle state."""
+    """RULE-1: only Reservation Management (services/) changes the lifecycle state."""
 
-    def test_only_services_module_changes_reservation_status(self):
+    def test_only_services_package_changes_reservation_status(self):
         violations = {}
         for path in _application_modules():
             found = _status_mutations(_parse(path))
@@ -75,12 +82,12 @@ class LifecycleOwnershipTests(SimpleTestCase):
         self.assertEqual(
             violations,
             {},
-            "Only reservations/services.py may change Reservation.status, "
+            "Only the reservations/services/ package may change Reservation.status, "
             f"but found: {violations}",
         )
 
-    def test_lifecycle_owner_module_exists(self):
-        self.assertTrue((APP_ROOT / LIFECYCLE_OWNER).is_file())
+    def test_lifecycle_owner_package_exists(self):
+        self.assertTrue((APP_ROOT / LIFECYCLE_OWNER / "__init__.py").is_file())
 
 
 class NotificationIsolationTests(SimpleTestCase):
@@ -88,15 +95,13 @@ class NotificationIsolationTests(SimpleTestCase):
 
     def test_only_notifications_module_defines_delivery(self):
         definers = []
-        for path in sorted(APP_ROOT.glob("*.py")):
-            if path.name.startswith("tests"):
-                continue
+        for path in _all_modules():
             for node in ast.walk(_parse(path)):
                 if isinstance(node, ast.FunctionDef) and node.name == "notify_reservation_event":
-                    definers.append(path.name)
+                    definers.append(str(path.relative_to(APP_ROOT)))
         self.assertEqual(
             definers,
-            [NOTIFICATION_OWNER],
+            [str(NOTIFICATION_OWNER)],
             "notify_reservation_event must be defined only in "
             f"{NOTIFICATION_OWNER}, but found it in: {definers}",
         )

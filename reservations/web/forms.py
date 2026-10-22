@@ -3,7 +3,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .models import Reservation, Resource
+from ..models import Reservation, Resource
 
 
 class AvailabilityForm(forms.Form):

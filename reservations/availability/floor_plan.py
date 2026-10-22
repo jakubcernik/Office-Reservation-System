@@ -10,7 +10,7 @@ they stay reachable from the list view.
 
 from dataclasses import dataclass
 
-from .models import Reservation, Resource
+from ..models import Reservation, Resource
 
 #: Size of the SVG canvas the coordinates below refer to.
 VIEWBOX = (1000, 640)

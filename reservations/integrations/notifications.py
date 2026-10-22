@@ -8,7 +8,7 @@ failure is logged and swallowed here and retry belongs to this boundary.
 
 import logging
 
-from .models import Reservation
+from ..models import Reservation
 
 logger = logging.getLogger(__name__)
 

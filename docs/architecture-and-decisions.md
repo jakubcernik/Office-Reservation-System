@@ -23,10 +23,14 @@ This is intentionally a monolithic application. One Python process and one SQLit
 
 Use one Django project and one main `reservations` app. Keep the initial structure small:
 
-- `models.py`: users' reservations, desks, parking spots, dates, and statuses.
-- `views.py`: browser pages and form handling.
-- `forms.py`: validation for selecting dates, resources, and actions.
-- `services.py`: the few operations that change reservation state.
+- `models/`: users' reservations, desks, parking spots, dates, and statuses.
+- `web/views/`: browser pages and form handling.
+- `web/forms.py`: validation for selecting dates, resources, and actions.
+- `services/`: the few operations that change reservation state.
+- `availability/`: read-only queries for free resources and the floor plan.
+- `integrations/`: the notification boundary.
+
+(The first version used flat files `models.py`, `views.py`, `forms.py` and `services.py`; see the change record "modules split by architecture element" below.)
 - `templates/`: server-rendered pages.
 - `static/`: plain CSS.
 - Django admin: resource maintenance and basic user management.
@@ -118,6 +122,30 @@ Consequences for the rules from the section above:
 - The stated upgrade trigger ("PostgreSQL for higher concurrency") is now met, so the concurrency model can be revisited next.
 - Tests keep running on SQLite locally, so `manage.py test` never touches the shared database.
 - Draft expiry, notifications, and the missing capacity numbers are still out of scope, exactly as decided above.
+
+## Change record: modules split by architecture element
+
+The `reservations` app outgrew its flat layout: `services.py` held Reservation Management, the Availability read model and the permission rule together, and `views.py` held every page. The files were split into directories that follow the C03 elements (G2). The architecture itself did not change: still one Django app, one process, one database, and every `Reservation.status` change stays inside Reservation Management.
+
+| Before | After |
+| --- | --- |
+| `models.py` | `models/resource.py`, `models/reservation.py` |
+| `services.py` — create / confirm / cancel | `services/lifecycle.py` |
+| `services.py` — approve / reject, pending requests | `services/approvals.py` |
+| `services.py` — `expire_stale_approvals` | `services/expiry.py` |
+| `services.py` — `user_can_approve`, `MANAGER_GROUP_NAME` | `services/permissions.py` |
+| `services.py` — `ReservationError` | `services/errors.py` |
+| `services.py` — active / available resources, user's reservations | `availability/queries.py` |
+| `floor_plan.py` | `availability/floor_plan.py` |
+| `notifications.py` | `integrations/notifications.py` |
+| `views.py` | `web/views/{auth,availability,reservations,approvals}.py` |
+| `forms.py`, `context_processors.py` | `web/forms.py`, `web/context_processors.py` |
+| `tests.py` | `tests/test_{lifecycle,approvals,availability,floor_plan,views_*}.py` |
+| `tests_architecture.py` | `tests/test_architecture.py` |
+
+One change inside the code: the allocation checks (active resource, BR-04, BR-02) were written twice, in `confirm_reservation` and in `_apply_approval_decision`. They now live once in `services/rules.py` (`ensure_can_allocate`), and saving as `CONFIRMED` with the DB-index fallback lives once in `services/lifecycle.py` (`allocate`). BR-07 ("approval re-checks the rules") therefore holds by construction, not by keeping two copies equal. Behaviour is unchanged: the same 49 tests pass and no migration was generated.
+
+Part A below and the C03 evidence describe the code as it was at that time; file and line references there point to the old layout and can be followed with the table above.
 
 ---
 
