@@ -83,4 +83,62 @@ Nové stránky jsou ověřené i přes HTTP (`ApprovalViewTests`): manažer str�
 
 **Remaining uncertainty / risk:** expirace jen při čtení (na stav se dá zapomenout); notifikace bez retry; `DRAFT` v běžném UI toku není pozorovatelný (v0.3); kapacita zdrojů stále neznámá z C01.
 
-**Commit/tag:** *neprovedeno na pokyn týmu* — návrh zprávy: „C03 architecture: approval workflow ownership + notification isolation", tag `c03` (případně navázat na `v0.2`).
+**Commit/tag:** tag `c03` → commit `6880f85` (stav C03 včetně redesignu, před rozdělením do modulů). Odkazy na soubory a řádky v C03 platí vůči tomuto tagu; novější umístění viz change record „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md) (commit `bf66ebb`).
+
+## C05 DD Verification Evidence
+
+**Unit:** Confirm Reservation v Reservation Management. Návrh je v [`docs/architecture-and-decisions.md`](architecture-and-decisions.md), sekce „C05 Detailed Design“.
+
+**Tests derived from DD:** nové testy jsou v `reservations/tests/test_confirmation_dd.py` (třída `ConfirmationDesignTests`). Kde už test existoval, odkazuje se na něj.
+
+| DD element / decision | Co musí platit | Úroveň | Test |
+| --- | --- | --- | --- |
+| kontrakt `ensure_can_allocate` (DD-2) | při úspěchu nic nezmění | unit | `test_rule_check_passes_without_changing_the_reservation` |
+| větev algoritmu: pořadí kontrol (DD-3) | neaktivní zdroj se hlásí dřív než BR-04 | unit | `test_inactive_resource_is_reported_before_the_parking_rule` |
+| hranice BR-04 (DD-3) | nepočítá se cizí stůl, stůl na jiný den ani stůl jen `PENDING_APPROVAL` | unit | `test_parking_rule_ignores_desks_that_do_not_count` |
+| přechod stavu: jen z `DRAFT` (DD-1) | `CONFIRMED`/`CANCELLED`/`REJECTED` nejde potvrdit a stav se nezmění | unit | `test_only_a_draft_can_be_confirmed` |
+| přechod stavu: větev schválení (DD-4) | obsazený zdroj nejde ani požádat o schválení | component | `test_taken_resource_cannot_be_requested_for_approval` |
+| přechod stavu: `DRAFT → PENDING_APPROVAL` | zdroj se schválením nevytvoří `CONFIRMED` | component | `test_flagged_resource_results_in_a_request_instead` (existující) |
+| failure: souběh (DD-5) | prohraný souběh = `ReservationError`, zůstane jedna `CONFIRMED` | component | `test_allocate_turns_a_lost_race_into_a_reservation_error` |
+| failure: notifikace (DD-6, D3) | selhání doručení nezmění `CONFIRMED` | component | `test_failed_notification_keeps_the_reservation_confirmed` |
+| spolupráce s notifikací (DD-6) | notifikace až po commitu | component | `test_notification_waits_for_the_commit` |
+| spolupráce s notifikací (DD-6) | při rollbacku se nic neoznámí | component | `test_rolled_back_confirmation_is_not_announced` |
+| spolupráce: tok v0.3 (DD-7) | po chybě nezůstane `DRAFT` | component | `test_nothing_is_left_behind_when_the_check_fails` (existující) |
+
+**Vysvětlení úrovně u dvou testů:**
+
+`test_rule_check_passes_without_changing_the_reservation`
+- Úroveň: unit.
+- Proč: `ensure_can_allocate` je samostatná funkce s jasným kontraktem a volá se přímo, bez view a bez `confirm_reservation`.
+- Co ověřuje: rozhodnutí DD-2, že kontrola pravidel nic nemění. Díky tomu ji smí volat potvrzení i schválení. Kdyby do ní někdo přidal zápis, test spadne.
+
+`test_allocate_turns_a_lost_race_into_a_reservation_error`
+- Úroveň: component (služba + skutečná DB s indexem).
+- Proč: chování závisí na unikátním indexu v databázi a mock by ho neověřil. Test volá `allocate` bez předchozí kontroly, stejně jako druhý request v souběhu, který kontrolou prošel dřív, než první uložil.
+- Co ověřuje: rozhodnutí DD-5, že poslední slovo při souběhu má DB index a volající dostane `ReservationError`, ne databázovou chybu.
+
+**Unit/component tests executed:** `python manage.py test`, **58 testů, OK** (49 dřívějších + 9 nových z DD).
+
+**Design ↔ implementation mismatch:**
+
+| DD decision | Implementováno? | Doklad | Akce |
+| --- | --- | --- | --- |
+| DD-1 jen z `DRAFT` | YES | `lifecycle.py` `confirm_reservation`; test výše | keep |
+| DD-2 čistá kontrola pravidel | YES | `rules.py` `ensure_can_allocate` | keep |
+| DD-3 pořadí kontrol a hranice BR-04 | YES | `rules.py` | keep |
+| DD-4 pravidla před větví schválení | YES | `lifecycle.py` | keep |
+| DD-5 souběh přes DB index | YES | `allocate` + `unique_confirmed_resource_date` | keep |
+| **DD-6 notifikace až po commitu** | **NO** (před změnou) | `notify_reservation_event` se volalo uvnitř `@transaction.atomic`, tedy před commitem. Odporovalo to i H1 z C03 (commit → notify). Testy `test_notification_waits_for_the_commit` a `test_rolled_back_confirmation_is_not_announced` na původním kódu **padaly** (notifikace odešla i při rollbacku). | **update code**: `notify_after_commit` přes `transaction.on_commit`, použito u potvrzení, žádosti, schválení, zamítnutí i zrušení |
+| DD-7 nic po chybě | YES | `create_reservation` v `transaction.atomic` | keep |
+| vlastník potvrzuje jen svou rezervaci | PARTLY | kontrola je ve view `confirm_reservation_view`, ne ve službě (`cancel_reservation` ji má ve službě s `actor`) | **deferred**: služba se dnes volá jen z tohoto view a z `create_reservation` (vždy vlastník). Přesun by změnil podpis použitý v 15 testech a v `seed_demo_data`. Vedeno jako riziko. |
+| H2 z C03: `ReservationRepository`, `Reservation.confirm()` | NO | v kódu není repository ani metody na entitě | **update design**: DD platí pro tuto jednotku, persistence je přímo ORM a logika ve funkcích služby; H2 zůstává jako záznam C03 |
+
+**Resolution:** DD-6 opraven v kódu (`reservations/services/lifecycle.py` `notify_after_commit`, `reservations/services/approvals.py`). Po opravě prochází všech 58 testů a architektonické kontroly RULE-1 a RULE-2 dál platí.
+
+**Remaining design risk:**
+- kontrola vlastníka při potvrzení je mimo službu (viz tabulka);
+- na SQLite `select_for_update` nezamyká, takže souběh tam drží jen DB index; na PostgreSQL zamyká i řádek;
+- notifikace po commitu nemá retry; když proces spadne mezi commitem a odesláním, zpráva se ztratí (přijato v ADR-01);
+- chyby se rozlišují jen textem hlášky, ne kódem.
+
+**Commit/tag:** tag `c05` (commit „C05 Detailed Design: Confirm Reservation“, navazuje na `bf66ebb`).

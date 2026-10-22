@@ -263,3 +263,237 @@ flowchart TB
 ## A9. Použití AI
 
 AI byla použita na navigaci v repozitáři a první verzi diagramu. Do tohoto výstupu jsou zapsaná pouze tvrzení ověřená v kódu (`reservations/views.py`, `services.py`, `models.py`, `notifications.py`) a v běžících testech (`python manage.py test`).
+
+---
+
+# C05 Detailed Design
+
+## Selected architecture unit
+
+| Položka | Hodnota |
+| --- | --- |
+| Jednotka | **Confirm Reservation** uvnitř prvku Reservation Management (C03, G2) |
+| Kód | `reservations/services/lifecycle.py` (`create_reservation`, `confirm_reservation`, `allocate`, `notify_after_commit`), `reservations/services/rules.py` (`ensure_can_allocate`, `user_has_confirmed_desk`) |
+| Požadavky | REQ-03, REQ-04, REQ-05, REQ-07 |
+| Scénáře | OP-03 Confirm Reservation, v0.3 rezervace jedním krokem (OP-01 + OP-03), větev se schválením (BR-05) |
+| Pravidla | BR-02 (jedna potvrzená rezervace na zdroj a den), BR-04 (parkování vyžaduje stůl), BR-05 (schvalované zdroje), BR-07 (schválení kontroluje stejná pravidla) |
+
+Mimo tuto jednotku: rozhodnutí manažera (`services/approvals.py`) a zrušení. Používají ale stejné `ensure_can_allocate`, `allocate` a `notify_after_commit`.
+
+## Detailed responsibilities
+
+| Detailní odpovědnost | Proč je potřeba |
+| --- | --- |
+| R1 ověřit, že přechod je povolený (jen `DRAFT`) | statechart z C02 nepovoluje potvrdit nic jiného |
+| R2 ověřit pravidla přidělení (aktivní zdroj, BR-04, BR-02) | stejná pravidla musí platit pro potvrzení i schválení (BR-07) |
+| R3 rozhodnout cílový stav (`CONFIRMED` nebo `PENDING_APPROVAL`) | zdroj s `requires_approval` se nepřiděluje hned (BR-05) |
+| R4 uložit `CONFIRMED` a ustát souběh | dvě žádosti mohou projít kontrolou současně (D1, BR-02) |
+| R5 oznámit změnu až po jejím uložení | notifikace nesmí ohlásit něco, co se neuložilo, a její selhání nesmí změnit výsledek (D3) |
+| R6 v toku v0.3 nenechat po neúspěchu nic v DB | uživatel nemá vidět osiřelý `DRAFT` |
+
+## Design elements and ownership
+
+| Odpovědnost | Owner | Stav / data | Proč zde |
+| --- | --- | --- | --- |
+| R1, R3 | `confirm_reservation` (`lifecycle.py`) | `Reservation.status`, zamčený řádek | jen Reservation Management mění stav (RULE-1) |
+| R2 | `ensure_can_allocate` (`rules.py`) | jen čte `Reservation`, `Resource` | jedna funkce pro potvrzení i schválení; nic nemění, takže jde testovat samostatně |
+| R4 | `allocate` (`lifecycle.py`) + DB index `unique_confirmed_resource_date` | `Reservation.status = CONFIRMED` | aplikační kontrola dává čitelnou chybu, index je poslední pojistka při souběhu |
+| R5 | `notify_after_commit` (`lifecycle.py`) → `notify_reservation_event` (`integrations/notifications.py`) | žádný | kdy oznamovat rozhoduje Reservation Management, jak doručit rozhoduje integrace |
+| R6 | `create_reservation` (`lifecycle.py`) | transakce | vytvoření a potvrzení musí být jeden atomický krok |
+
+## Key interface / contract
+
+```
+ensure_can_allocate(reservation: Reservation) -> None
+
+Preconditions:
+- reservation má načtený resource a user (volající ho drží zamčený v transakci)
+
+Postconditions:
+- při úspěchu se nic nezmění (žádný zápis do DB)
+
+Failures (ReservationError, kontroluje se v tomto pořadí, hlásí se první):
+- "The selected resource is no longer active."           – zdroj není aktivní
+- "Parking requires a confirmed desk reservation ..."    – BR-04: chybí vlastní CONFIRMED stůl na stejný den
+- "The selected resource is already confirmed ..."       – BR-02: jiná CONFIRMED rezervace téhož zdroje a dne
+```
+
+```
+confirm_reservation(reservation: Reservation) -> Reservation
+
+Preconditions:
+- reservation existuje
+- volající ověřil, že jde o vlastníka (dnes dělá web vrstva, viz rozdíly níže)
+
+Postconditions:
+- výsledek je CONFIRMED, nebo PENDING_APPROVAL, když resource.requires_approval
+- při chybě zůstává DRAFT a nic se neoznamuje
+- notifikace je naplánovaná na commit transakce
+
+Failures (ReservationError):
+- "Only draft reservations can be confirmed."
+- všechny chyby ensure_can_allocate
+- lost race na DB indexu → "The selected resource is already confirmed for that date."
+```
+
+## Focused structural view
+
+```mermaid
+classDiagram
+    class lifecycle {
+        <<module>>
+        +create_reservation(user, resource, date) Reservation
+        +confirm_reservation(reservation) Reservation
+        +allocate(reservation) void
+        +notify_after_commit(action, reservation) void
+    }
+    class rules {
+        <<module>>
+        +ensure_can_allocate(reservation) void
+        +user_has_confirmed_desk(user, date) bool
+    }
+    class expiry {
+        <<module>>
+        +expire_stale_approvals() int
+    }
+    class notifications {
+        <<module, integrations>>
+        +notify_reservation_event(action, reservation) bool
+    }
+    class Reservation {
+        +reservation_date
+        +status
+    }
+    class Resource {
+        +is_active
+        +requires_approval
+        +resource_type
+    }
+    class ReservationError {
+        <<exception>>
+    }
+
+    lifecycle ..> expiry : nejdřív expiruje
+    lifecycle ..> rules : zkontroluje pravidla
+    lifecycle ..> notifications : po commitu
+    lifecycle --> Reservation : mění status
+    rules ..> Reservation : čte
+    rules ..> Resource : čte
+    rules ..> ReservationError : vyhazuje
+    lifecycle ..> ReservationError : vyhazuje
+    Reservation --> "1" Resource
+```
+
+Proti H2 z C03: tato jednotka nemá `ReservationRepository` a `Reservation` nemá metody `confirm()`/`cancel()`. Persistence je přímo Django ORM a logika je ve funkcích služby. Viz rozdíly níže.
+
+## Detailed sequence
+
+Scénář v0.3: uživatel zarezervuje parkovací místo, které nevyžaduje schválení.
+
+```mermaid
+sequenceDiagram
+    participant V as web view
+    participant L as lifecycle
+    participant E as expiry
+    participant R as rules
+    participant DB as DB (ORM)
+    participant N as notifications
+
+    V->>L: create_reservation(user, resource, date)
+    activate L
+    Note over L,DB: transaction.atomic
+    L->>DB: INSERT Reservation(DRAFT)
+    L->>L: confirm_reservation(draft)
+    L->>E: expire_stale_approvals()
+    L->>DB: SELECT ... FOR UPDATE
+    L->>L: status == DRAFT?
+    L->>R: ensure_can_allocate(reservation)
+    R->>DB: zdroj aktivní? vlastní CONFIRMED stůl? jiná CONFIRMED?
+    alt pravidlo porušeno
+        R-->>L: ReservationError
+        Note over L,DB: rollback – DRAFT zmizí (R6)
+        L-->>V: ReservationError
+    else pravidla OK
+        L->>L: allocate(): status = CONFIRMED
+        L->>DB: UPDATE (index unique_confirmed_resource_date)
+        L->>L: notify_after_commit("confirmed")
+        Note over L,DB: commit
+        L->>N: notify_reservation_event("confirmed")
+        N-->>L: True / False (ignoruje se)
+        L-->>V: Reservation(CONFIRMED)
+    end
+    deactivate L
+```
+
+## Important methods / operations
+
+**`confirm_reservation(reservation)`**
+- Odpovědnost: R1, R3 (a přes volání R2, R4, R5)
+- Vstup: `Reservation`; výstup: aktualizovaná `Reservation`
+- Pre: rezervace existuje, volající je vlastník
+- Post: `CONFIRMED` nebo `PENDING_APPROVAL`; při chybě beze změny
+- Vedlejší efekty: nejdřív expiruje prošlé žádosti; zamkne řádek; po commitu jedna notifikace
+- Chyby: `ReservationError` (stav, pravidla, souběh)
+
+**`ensure_can_allocate(reservation)`**: kontrakt je výše. Je to čistá kontrola bez zápisu.
+
+**`allocate(reservation)`**
+- Odpovědnost: R4
+- Pre: běží v transakci a `ensure_can_allocate` prošlo
+- Post: `status = CONFIRMED` uložen
+- Chyby: `IntegrityError` z indexu se převede na `ReservationError` (stejná hláška jako BR-02), takže volající nikdy nedostane databázovou chybu
+
+**`notify_after_commit(action, reservation)`**
+- Odpovědnost: R5
+- Post: notifikace odejde po commitu; při rollbacku vůbec
+- Chyby: žádné; selhání doručení zaloguje a spolkne `notify_reservation_event`
+
+**`create_reservation(user, resource, date)`**
+- Odpovědnost: R6
+- Post: buď existuje rezervace ve stavu `CONFIRMED` / `PENDING_APPROVAL`, nebo nic
+
+## Algorithm / decision logic
+
+```
+confirm_reservation(r):
+    expire_stale_approvals()
+    r = lock(r)
+    if r.status != DRAFT:            fail "Only draft reservations can be confirmed."
+    ensure_can_allocate(r):
+        if not r.resource.is_active:                     fail "no longer active"
+        if r.resource is PARKING
+           and no CONFIRMED desk of r.user on r.date:    fail "Parking requires ..."
+        if other CONFIRMED for r.resource on r.date:     fail "already confirmed"
+    if r.resource.requires_approval:
+        r.status = PENDING_APPROVAL; notify_after_commit("requested approval")
+    else:
+        allocate(r)          # CONFIRMED, IntegrityError → "already confirmed"
+        notify_after_commit("confirmed")
+    return r
+```
+
+| Stav | Aktivní | Parkování bez stolu | Obsazeno | `requires_approval` | Výsledek |
+| --- | --- | --- | --- | --- | --- |
+| ≠ DRAFT | – | – | – | – | chyba „Only draft“ |
+| DRAFT | ne | – | – | – | chyba „no longer active“ |
+| DRAFT | ano | ano | – | – | chyba „Parking requires“ |
+| DRAFT | ano | ne | ano | – | chyba „already confirmed“ |
+| DRAFT | ano | ne | ne | ano | `PENDING_APPROVAL` |
+| DRAFT | ano | ne | ne | ne | `CONFIRMED` |
+
+Návrhová rozhodnutí, na která odkazují testy:
+
+- **DD-1:** potvrdit jde jen `DRAFT`; jiný stav se nemění.
+- **DD-2:** `ensure_can_allocate` je čistá kontrola bez zápisu.
+- **DD-3:** kontroly mají pevné pořadí a hlásí se první chyba. BR-04 počítá jen **vlastní CONFIRMED** stůl **na stejný den**.
+- **DD-4:** pravidla se kontrolují **před** větví schválení, takže o obsazený zdroj nejde ani požádat.
+- **DD-5:** souběh rozhoduje DB index a prohraný souběh se hlásí jako `ReservationError`.
+- **DD-6:** notifikace až po commitu, při rollbacku žádná; selhání doručení nemění výsledek.
+- **DD-7:** v toku v0.3 po chybě nic nezůstane.
+
+## DD decisions intentionally left to code
+
+- přesné texty chybových hlášek (testy kontrolují jen jejich klíčovou část);
+- tvar dotazů ORM a `select_related`;
+- formát logovací zprávy notifikace;
+- zamykání řádku na SQLite (`select_for_update` tam nic nedělá, na PostgreSQL ano).

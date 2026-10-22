@@ -1,11 +1,10 @@
 from django.db import transaction
 from django.db.models import QuerySet
 
-from ..integrations.notifications import notify_reservation_event
 from ..models import Reservation
 from .errors import ReservationError
 from .expiry import expire_stale_approvals
-from .lifecycle import allocate
+from .lifecycle import allocate, notify_after_commit
 from .permissions import user_can_approve
 from .rules import ensure_can_allocate
 
@@ -46,10 +45,10 @@ def _apply_approval_decision(reservation: Reservation, *, approve: bool) -> Rese
     if not approve:
         reservation.status = Reservation.Status.REJECTED
         reservation.save(update_fields=["status", "updated_at"])
-        notify_reservation_event("rejected", reservation)
+        notify_after_commit("rejected", reservation)
         return reservation
 
     ensure_can_allocate(reservation)
     allocate(reservation)
-    notify_reservation_event("approved", reservation)
+    notify_after_commit("approved", reservation)
     return reservation

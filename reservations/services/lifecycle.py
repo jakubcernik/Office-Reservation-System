@@ -54,11 +54,11 @@ def confirm_reservation(reservation: Reservation) -> Reservation:
     if reservation.resource.requires_approval:
         reservation.status = Reservation.Status.PENDING_APPROVAL
         reservation.save(update_fields=["status", "updated_at"])
-        notify_reservation_event("requested approval", reservation)
+        notify_after_commit("requested approval", reservation)
         return reservation
 
     allocate(reservation)
-    notify_reservation_event("confirmed", reservation)
+    notify_after_commit("confirmed", reservation)
     return reservation
 
 
@@ -74,6 +74,16 @@ def allocate(reservation: Reservation) -> None:
         raise ReservationError("The selected resource is already confirmed for that date.") from exc
 
 
+def notify_after_commit(action: str, reservation: Reservation) -> None:
+    """Announce a state change once it is stored (H1: commit, then notify).
+
+    Inside a transaction the event waits for the commit and is dropped on
+    rollback, so nobody hears about a change that never happened. Outside a
+    transaction Django runs it immediately.
+    """
+    transaction.on_commit(lambda: notify_reservation_event(action, reservation))
+
+
 @transaction.atomic
 def cancel_reservation(reservation: Reservation, *, actor) -> Reservation:
     expire_stale_approvals()
@@ -87,5 +97,5 @@ def cancel_reservation(reservation: Reservation, *, actor) -> Reservation:
 
     reservation.status = Reservation.Status.CANCELLED
     reservation.save(update_fields=["status", "updated_at"])
-    notify_reservation_event("cancelled", reservation)
+    notify_after_commit("cancelled", reservation)
     return reservation
