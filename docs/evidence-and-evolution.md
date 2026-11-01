@@ -217,9 +217,9 @@ Běhy A a B byly dočasné kontrolní testy (patch `lock_for_allocation`, odebr�
 | B1 – odkazy na řádky a „47 testů“ v C03 patří commitu `cd4d180`, ne `6880f85` *(nezávislá kontrola)* | `git show cd4d180:reservations/services.py` | tag `c03` přesunut na `cd4d180`, texty opraveny |
 | docs ↔ kód – tři místa tvrdila „testy vždy na SQLite“ | grep | přeformulováno (výchozí SQLite, volitelně `TEST_DATABASE_URL`) |
 
-**Verified findings:** *doplní hodnotící tým (max. 3).*
+**Verified findings:** viz sekce „C07 — Vypořádání nálezů C06“ níže.
 
-**Owner disposition:** *doplní tým po obdržení nálezů.*
+**Owner disposition:** viz sekce „C07 — Vypořádání nálezů C06“ níže.
 
 **Actions / justified no-change decisions:** viz self-check výše; další podle nálezů.
 
@@ -244,3 +244,47 @@ Změny proti assessed baseline `c06`. Reporting tag: `c08`.
 
 **Otevřené:**
 - BR-08 při souběhu drží jen zámek řádku uživatele, tj. jen na PostgreSQL; databázová pojistka (jako index u BR-02) chybí, protože pravidlo závisí na typu zdroje v jiné tabulce.
+
+## C07 — Vypořádání nálezů C06
+
+Nálezy se reprodukují proti assessed baseline `c06` (`a3cfb3f`), opravy se ukazují proti reporting baseline `c08`.
+
+**Assessment od hodnotícího týmu:** v repozitáři zatím není. Jeho nálezy jsou **NOT VERIFIED**, dokud ho nedostaneme; pak je doplníme do tabulky níže stejným postupem.
+
+| Položka | F1 — jeden uživatel může mít více stolů na tentýž den |
+| --- | --- |
+| Zdroj | vlastní kontrola týmu po C06 (ne assessment hodnotícího týmu) |
+| Claim | Rezervace stolu dává smysl jen pro toho, kdo ten den přijde; jeden uživatel nemá blokovat stoly ostatním. Specifikace C01–C05 to výslovně neuváděla (BR-02 hlídá jen stejný zdroj, BR-04 jen parkování). |
+| Expected | Druhý potvrzený stůl téhož uživatele na tentýž den je odmítnut. |
+| Observed | Na `c06` dva `create_reservation` téhož uživatele na dva různé stoly a stejný den skončí oba `CONFIRMED`. |
+| Verify | Jednorázový test na čistém checkoutu `a3cfb3f` (1. 11. 2026): 2 potvrzené stoly pro jednoho uživatele. |
+| Disposition | **VERIFIED FINDING → ACCEPT.** Jde o mezeru ve specifikaci, ne o porušení přijatého požadavku; doplňujeme ji jako nové pravidlo BR-08, protože bez něj aplikace nesplňuje účel (místo pro toho, kdo přijde). Owner: [jméno]. |
+| Action | BR-08 v `docs/intent-and-change.md`; kontrola v `ensure_can_allocate`; `lock_for_allocation` zamyká i řádek uživatele. |
+| Closure evidence | commit `53f72bc` (v `c08`); testy `test_second_desk_on_the_same_day_is_refused`, `test_second_desk_on_another_day_or_after_cancel_is_allowed`, `test_desk_and_parking_on_the_same_day_are_allowed`, souběžný `test_one_desk_per_user_and_day` (bez zámku uživatele 7 stolů, se zámkem 1). 71 testů OK na SQLite i PostgreSQL 15. |
+| Zbývá | Databázová pojistka pro BR-08 chybí → riziko R-04. |
+
+**Souhrn (max. 3 nejdůležitější):**
+1. F1 — ověřeno, přijato, opraveno v `c08` (viz výše).
+2. Nálezy hodnotícího týmu — NOT VERIFIED, assessment chybí (issue I-1).
+3. Ruční změna stavu v Django administraci obejde pravidla — ověřeno inspekcí `reservations/admin.py` (`ReservationAdmin` bez polí jen pro čtení); **DEFER** do akčního plánu, vedeno jako riziko R-01.
+
+## C07–C08 — Risk Assessment (B)
+
+Stav k reporting baseline `c08`. Pravděpodobnost (L) a dopad (I) 1–3, priorita = L × I (1–2 LOW, 3–4 MEDIUM, 6–9 HIGH). Actual residual zůstává NOT VERIFIED, dokud opatření neproběhne a nebude ověřené.
+
+| | R-01 | R-02 | R-03 | R-04 |
+| --- | --- | --- | --- | --- |
+| Kategorie | Security | People / Resources | Schedule / Integration | Technical / Quality |
+| Příčina → událost → důsledek | `ReservationAdmin` dovoluje ručně měnit `status` → správce potvrdí parkování bez stolu nebo druhý stůl → poruší se BR-04, BR-08 a stavový diagram | testy na PostgreSQL (souběh) zatím spustil jen jeden člen → při jeho absenci nikdo důkaz Q-1 nezopakuje → obhajoba a CP2 bez ověřeného souběhu | plán do CP2 nemá ownery ani termíny → práce se spojí na poslední chvíli (C03–C06 se integrovaly v jeden den) → nezbude čas na opravy | BR-08 drží jen aplikační kontrola + zámek uživatele, DB pojistka chybí → zápis mimo službu (admin, skript) vytvoří druhý stůl → porušené BR-08 |
+| Initial L / I / priorita | 2 / 3 / HIGH (6) — cesta v kódu existuje, dopad na hlavní pravidla | 2 / 2 / MEDIUM (4) — podle historie commitů měření připravil jeden člen | 2 / 2 / MEDIUM (4) — pozdní integrace už jednou nastala | 1 / 2 / LOW (2) — jediná cesta mimo službu je admin (R-01) |
+| Strategie | MITIGATE | MITIGATE | MITIGATE | ACCEPT |
+| Opatření, owner, termín | `readonly_fields = ("status",)` v `ReservationAdmin` + test formuláře; [jméno], do [datum] | druhý člen spustí `TEST_DATABASE_URL=… python manage.py test` z čistého checkoutu podle README; [jméno], do [datum] | plán CP2 s ownery a termíny v repozitáři, testy při každém pushi; [jméno], do [datum] | žádné nové; spoléháme na R-01 (admin uzamčen) a na to, že jiné zápisy mimo službu neexistují |
+| Evidence opatření | zatím žádná | zatím žádná | zatím žádná | `test_architecture.py` RULE-1 hlídá, že stav mění jen `services/` |
+| Expected residual | 1 / 3 / MEDIUM (3) | 1 / 2 / LOW (2) | 1 / 2 / LOW (2) | 1 / 2 / LOW (2) |
+| Actual residual | NOT VERIFIED | NOT VERIFIED | NOT VERIFIED | 1 / 2 / LOW (2) — přijato bez opatření |
+| Acceptance a contingency | přijme [jméno] po zeleném testu; když se nestihne, přijmout vědomě do CP2 | přijme [jméno] po logu z druhého stroje; záloha: kontejner `postgres:15` | přijme [jméno]; když termín nevyjde, zúžit rozsah CP2 | přijímá [jméno]; pokud přibude jiný zápis mimo službu, přidat DB constraint nebo trigger |
+| Monitoring / trigger | nové pole nebo nový účet správce v adminu | běh na druhém stroji selže; owner nedostupný | úkol bez ownera; neprošlé testy | nový kód zapisující `Reservation` mimo `services/` |
+
+**Issues (už nastalo, nejsou to rizika):**
+- I-1: assessment hodnotícího týmu z C06 není v repozitáři, nálezy nelze vypořádat — owner [jméno], další krok: vyžádat.
+- I-2: kontrola vlastníka při potvrzení je v controlleru, ne ve službě (odloženo z C05) — owner [jméno].
