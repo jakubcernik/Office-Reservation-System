@@ -120,6 +120,35 @@ class CreateReservationTests(TestCase):
         with self.assertRaises(ReservationError):
             create_reservation(user=self.user, resource=inactive, reservation_date=self.today)
 
+    def test_second_desk_on_the_same_day_is_refused(self):
+        other_desk = Resource.objects.create(name="A13", resource_type=Resource.ResourceType.DESK)
+        create_reservation(user=self.user, resource=self.desk, reservation_date=self.today)
+
+        with self.assertRaises(ReservationError):
+            create_reservation(user=self.user, resource=other_desk, reservation_date=self.today)
+
+        self.assertIn(other_desk, available_resources_for_date(self.today))
+
+    def test_second_desk_on_another_day_or_after_cancel_is_allowed(self):
+        other_desk = Resource.objects.create(name="A13", resource_type=Resource.ResourceType.DESK)
+        first = create_reservation(user=self.user, resource=self.desk, reservation_date=self.today)
+
+        next_day = create_reservation(
+            user=self.user, resource=other_desk, reservation_date=self.today + timedelta(days=1)
+        )
+        cancel_reservation(first, actor=self.user)
+        same_day = create_reservation(user=self.user, resource=other_desk, reservation_date=self.today)
+
+        self.assertEqual(next_day.status, Reservation.Status.CONFIRMED)
+        self.assertEqual(same_day.status, Reservation.Status.CONFIRMED)
+
+    def test_desk_and_parking_on_the_same_day_are_allowed(self):
+        create_reservation(user=self.user, resource=self.desk, reservation_date=self.today)
+
+        parking = create_reservation(user=self.user, resource=self.parking, reservation_date=self.today)
+
+        self.assertEqual(parking.status, Reservation.Status.CONFIRMED)
+
 
 class CancellationTests(TestCase):
     def setUp(self):

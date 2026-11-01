@@ -235,6 +235,12 @@ Změny proti assessed baseline `c06`. Reporting tag: `c08`.
 
 | Změna | Expected ↔ Observed na `c06` | Akce | Evidence |
 | --- | --- | --- | --- |
+| Defekt: jeden uživatel mohl rezervovat více stolů na tentýž den | Expected: jeden uživatel drží na den nejvýše jeden stůl (jinak blokuje stoly ostatním). Observed: dva `create_reservation` téhož uživatele na dva různé stoly a stejný den oba skončí `CONFIRMED`; `ensure_can_allocate` hlídal jen BR-02 (stejný zdroj) a BR-04. | Nové pravidlo BR-08 ve specifikaci; kontrola v `ensure_can_allocate` (platí pro potvrzení i schválení); `lock_for_allocation` zamyká i řádek uživatele kvůli souběhu dvou různých stolů | `CreateReservationTests.test_second_desk_on_the_same_day_is_refused`, `test_second_desk_on_another_day_or_after_cancel_is_allowed`, `test_desk_and_parking_on_the_same_day_are_allowed`, souběh viz níže |
 | Struktura: vrstvená MVC se service layer | Adresáře byly pojmenované podle prvků C03 (`web/`, `availability/`) | Přejmenování `web/` na `controllers/`, `availability/` přesunuto do `services/`; ADR-01 beze změny; nové pravidlo RULE-3 (směr závislostí) | change record „layered MVC with a service layer“ v [`architecture-and-decisions.md`](architecture-and-decisions.md); `LayerDirectionTests` (ověřeno dočasným modulem `services/` → `controllers`, test selhal) |
 
-**Testy:** `python manage.py test` na SQLite → 67 testů OK (1 přeskočen: měření C04 patří na PostgreSQL).
+**Souběh BR-08:** `ConcurrentReservationMeasurement.test_one_desk_per_user_and_day` — jeden uživatel, 20 vláken, 20 různých stolů, stejný den. Se zámkem řádku uživatele: 1 `CONFIRMED`, 19 odmítnuto kontrolou. Kontrolní běh bez zámku uživatele (`of=("self", "resource")`): 7 `CONFIRMED` — kontrola v aplikaci sama nestačí.
+
+**Testy:** `python manage.py test` na SQLite → 71 testů OK (2 přeskočeny: souběžné testy patří na PostgreSQL); na PostgreSQL 15 (lokální kontejner) přes `TEST_DATABASE_URL` → 71 testů OK.
+
+**Otevřené:**
+- BR-08 při souběhu drží jen zámek řádku uživatele, tj. jen na PostgreSQL; databázová pojistka (jako index u BR-02) chybí, protože pravidlo závisí na typu zdroje v jiné tabulce.

@@ -189,7 +189,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Změna stavu:** `DRAFT` → `CONFIRMED`
 
-**Odkaz na doménová pravidla:** BR-02, BR-04.
+**Odkaz na doménová pravidla:** BR-02, BR-04, BR-08 (doplněno po C06).
 
 **Alternativní / chybové výsledky:**
 - neaktivní zdroj → odmítnuto, rezervace zůstává `DRAFT`;
@@ -208,7 +208,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Předpoklad:** Oznámení je dnes jen záznam do logu (`notify_reservation_event`, od C03 v `reservations/integrations/notifications.py`), nikoli skutečná externí služba — architektonický driver pro C03.
 
-**Implementace:** `reservations/services/lifecycle.py` `confirm_reservation` (v transakci, se zámkem řádku rezervace a zdroje), `reservations/controllers/reservations.py` `confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
+**Implementace:** `reservations/services/lifecycle.py` `confirm_reservation` (v transakci, se zámkem řádku rezervace a zdroje; po C06 i uživatele kvůli BR-08), `reservations/controllers/reservations.py` `confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
 
 ## OP-04 — Zrušení rezervace (Cancel Reservation)
 
@@ -270,6 +270,10 @@ Pravidla platí napříč operacemi, proto jsou definovaná **jen zde** a jednot
 > *Rozsah (upřesněno v C06):* pravidlo je podmínka **v okamžiku potvrzení / schválení**. Pozdější zrušení stolu už potvrzené parkovací místo neruší; nový stav se pak kontroluje jen u dalších potvrzení a schválení (proto OP-05 odmítne schválit parkování po zrušení stolu).
 > *Neznámá:* C01 zmiňuje i variantu „nebo současně v jedné transakci vytváří“ — aplikace nepotvrzuje více rezervací najednou, proto tato část zatím nemá chování. TBD pro případ přidání košíku.
 
+> **BR-08 — Jeden stůl na uživatele a den** (doplněno po C06)
+> Uživatel smí mít na jeden den nejvýše jeden potvrzený stůl. Parkovací místo se nepočítá; stůl a parkování na stejný den jsou v pořádku (BR-04). Zrušený stůl místo uvolní.
+> *Zdroj:* nalezená chyba — aplikace dovolila jednomu uživateli rezervovat více stolů na tentýž den a blokovat je ostatním.
+> *Vynucení:* `ensure_can_allocate` (`reservations/services/rules.py`), takže platí při potvrzení i schválení (BR-07). Souběh dvou rezervací **různých** stolů téhož uživatele nehlídá zámek zdroje ani index, proto `lock_for_allocation` zamyká i řádek uživatele. Databázová pojistka zatím není (pravidlo závisí na typu zdroje v jiné tabulce).
 
 ## Kontrola přijetí požadavků
 
@@ -455,7 +459,7 @@ Mění se jen to, co změna skutečně zasahuje. Vše ostatní platí z v0.1.
 > *Zdroj:* rozhodnutí týmu v C02 („do konce dne, na který je rezervace“). Lhůta se počítá z `reservation_date`, proto ji nelze zaměnit s dobou vyřízení.
 
 > **BR-07 — Schválení znovu ověřuje pravidla**
-> Schválení je nový okamžik alokace, takže se v něm znovu ověřuje BR-02 (žádná jiná potvrzená rezervace stejného zdroje a dne) a BR-04 (parkovací místo vyžaduje potvrzený stůl). Pokud pravidlo neplatí, schválit nelze a žádost zůstává `PENDING_APPROVAL`, aby ji bylo možné zamítnout s vysvětlením.
+> Schválení je nový okamžik alokace, takže se v něm znovu ověřuje BR-02 (žádná jiná potvrzená rezervace stejného zdroje a dne) a BR-04 (parkovací místo vyžaduje potvrzený stůl); po C06 také BR-08 (jeden stůl na uživatele a den). Pokud pravidlo neplatí, schválit nelze a žádost zůstává `PENDING_APPROVAL`, aby ji bylo možné zamítnout s vysvětlením.
 
 ### OP-05 — Rozhodnutí o žádosti (Approve / Reject Reservation)
 

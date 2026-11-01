@@ -33,12 +33,13 @@ ATTEMPTS = 20
 ROUNDS = 10
 
 
-def _run_round(users, resource, reservation_date):
-    barrier = threading.Barrier(len(users))
+def _run_round(attempts, reservation_date):
+    """Run each (user, resource) attempt in its own thread, all released at once."""
+    barrier = threading.Barrier(len(attempts))
     outcomes = []
     lock = threading.Lock()
 
-    def attempt(user):
+    def attempt(user, resource):
         try:
             # Connect before the barrier, otherwise opening the connection
             # staggers the threads and they never meet at the critical point.
@@ -57,7 +58,7 @@ def _run_round(users, resource, reservation_date):
         with lock:
             outcomes.append(result)
 
-    threads = [threading.Thread(target=attempt, args=(user,)) for user in users]
+    threads = [threading.Thread(target=attempt, args=pair) for pair in attempts]
     started = time.perf_counter()
     for thread in threads:
         thread.start()
@@ -81,7 +82,7 @@ class ConcurrentReservationMeasurement(TransactionTestCase):
         rounds = []
         for round_index in range(ROUNDS):
             reservation_date = first_day + timedelta(days=round_index)
-            outcomes, seconds = _run_round(users, resource, reservation_date)
+            outcomes, seconds = _run_round([(user, resource) for user in users], reservation_date)
             stored = Counter(
                 Reservation.objects.filter(resource=resource, reservation_date=reservation_date).values_list(
                     "status", flat=True
@@ -100,3 +101,21 @@ class ConcurrentReservationMeasurement(TransactionTestCase):
                 self.assertEqual(outcomes["confirmed"], 1)
                 self.assertEqual(refused, ATTEMPTS - 1, f"unexpected outcomes: {dict(outcomes)}")
                 self.assertEqual(stored, Counter({Reservation.Status.CONFIRMED: 1}))
+
+    def test_one_desk_per_user_and_day(self):
+        """BR-08: one user racing for different desks on the same day ends with one desk."""
+        user = get_user_model().objects.create_user(username="racer", password="password12345")
+        desks = [
+            Resource.objects.create(name=f"B{index:02d}", resource_type=Resource.ResourceType.DESK)
+            for index in range(ATTEMPTS)
+        ]
+        reservation_date = date.today() + timedelta(days=60)
+
+        outcomes, _ = _run_round([(user, desk) for desk in desks], reservation_date)
+
+        self.assertEqual(outcomes["confirmed"], 1, f"unexpected outcomes: {dict(outcomes)}")
+        self.assertEqual(outcomes["refused_by_check"], ATTEMPTS - 1)
+        self.assertEqual(
+            Reservation.objects.filter(user=user, reservation_date=reservation_date, status=Reservation.Status.CONFIRMED).count(),
+            1,
+        )

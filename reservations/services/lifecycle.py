@@ -43,15 +43,17 @@ def create_reservation(*, user, resource: Resource, reservation_date) -> Reserva
 
 
 def lock_for_allocation(reservation: Reservation) -> Reservation:
-    """Reload the reservation and lock its row and its resource's row (C04, Q-1).
+    """Reload the reservation and lock its row, its resource's row and its user's row (C04, Q-1).
 
     Locking the resource row is the authoritative point for BR-02 under
     concurrency: two allocations of the same resource wait for each other, so
     the second one sees the first one's CONFIRMED in ``ensure_can_allocate``.
-    The partial unique index stays as the last guard. Call inside a transaction.
+    The partial unique index stays as the last guard. The user row does the same
+    for BR-08, where the two allocations are of different desks and no index
+    can help. Call inside a transaction.
     """
     return (
-        Reservation.objects.select_for_update(of=("self", "resource"))
+        Reservation.objects.select_for_update(of=("self", "resource", "user"))
         .select_related("resource", "user")
         .get(pk=reservation.pk)
     )

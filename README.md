@@ -221,7 +221,7 @@ reservations/
 │   ├── lifecycle.py     create / confirm / cancel
 │   ├── approvals.py     approve / reject, pending requests
 │   ├── expiry.py        PENDING_APPROVAL → EXPIRED on read (BR-06)
-│   ├── rules.py         allocation rules shared by confirm and approve (BR-02, BR-04)
+│   ├── rules.py         allocation rules shared by confirm and approve (BR-02, BR-04, BR-08)
 │   ├── permissions.py   who is an office manager
 │   ├── availability.py  read queries: free resources, user's reservations
 │   ├── floor_plan.py    floor plan spots for the availability page

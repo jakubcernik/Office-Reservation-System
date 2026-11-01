@@ -9,13 +9,17 @@ from ..models import Reservation, Resource
 from .errors import ReservationError
 
 
-def user_has_confirmed_desk(user, reservation_date) -> bool:
+def _confirmed_desks(user, reservation_date):
     return Reservation.objects.filter(
         user=user,
         reservation_date=reservation_date,
         resource__resource_type=Resource.ResourceType.DESK,
         status=Reservation.Status.CONFIRMED,
-    ).exists()
+    )
+
+
+def user_has_confirmed_desk(user, reservation_date) -> bool:
+    return _confirmed_desks(user, reservation_date).exists()
 
 
 def ensure_can_allocate(reservation: Reservation) -> None:
@@ -23,7 +27,8 @@ def ensure_can_allocate(reservation: Reservation) -> None:
 
     Checks in the order of the OP-03 and OP-05 activity diagrams (C02): the
     resource is active, no other reservation holds the resource for that day
-    (BR-02), and parking has a confirmed desk for the same user and day (BR-04).
+    (BR-02), the user holds at most one desk per day (BR-08), and parking has a
+    confirmed desk for the same user and day (BR-04).
     """
     if not reservation.resource.is_active:
         raise ReservationError("The selected resource is no longer active.")
@@ -34,6 +39,10 @@ def ensure_can_allocate(reservation: Reservation) -> None:
         status=Reservation.Status.CONFIRMED,
     ).exclude(pk=reservation.pk).exists():
         raise ReservationError("The selected resource is already confirmed for that date.")
+
+    if reservation.resource.resource_type == Resource.ResourceType.DESK:
+        if _confirmed_desks(reservation.user, reservation.reservation_date).exclude(pk=reservation.pk).exists():
+            raise ReservationError("You already have a desk reserved for that date.")
 
     if reservation.resource.resource_type == Resource.ResourceType.PARKING_SPOT:
         if not user_has_confirmed_desk(reservation.user, reservation.reservation_date):
