@@ -5,8 +5,8 @@ import json
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_POST
 
-from ...services import ReservationError, create_draft
-from ..forms import ReservationCreationForm
+from ..services import ReservationError, create_draft
+from .forms import ReservationCreationForm
 
 
 @require_POST

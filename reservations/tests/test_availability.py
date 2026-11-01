@@ -3,9 +3,8 @@ from datetime import date
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from ..availability import available_resources_for_date
 from ..models import Reservation, Resource
-from ..services import create_draft
+from ..services import available_resources_for_date, create_draft
 
 
 class AvailabilityTests(TestCase):

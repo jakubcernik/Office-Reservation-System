@@ -3,8 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 
-from ...models import Reservation
-from ...services import ReservationError, decide_approval, pending_approval_requests, user_can_approve
+from ..models import Reservation
+from ..services import ReservationError, decide_approval, pending_approval_requests, user_can_approve
 
 
 @login_required

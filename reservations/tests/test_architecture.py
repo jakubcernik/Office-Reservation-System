@@ -2,9 +2,10 @@
 
 C03/L2 requires one architecture rule to be protected by a repeatable check.
 RULE-1 (lifecycle ownership) is that check; RULE-2 (notification isolation)
-belongs to the same ADR-01 and is cheap to keep next to it.
+belongs to the same ADR-01 and is cheap to keep next to it. RULE-3 keeps the
+layers (controllers → services → models / integrations) from depending upwards.
 
-See ``docs/c03-architecture.md`` (ADR-01, G2, L2).
+See ``docs/c03-architecture.md`` (ADR-01, G2, L2) and ``docs/architecture-and-decisions.md``.
 """
 
 import ast
@@ -19,6 +20,14 @@ LIFECYCLE_OWNER = Path("services")
 
 #: The only module allowed to define notification delivery (RULE-2).
 NOTIFICATION_OWNER = Path("integrations") / "notifications.py"
+
+#: Packages each layer may import from the app (RULE-3); its own package is always allowed.
+LAYER_DEPENDENCIES = {
+    "controllers": {"services", "models"},
+    "services": {"models", "integrations"},
+    "integrations": {"models"},
+    "models": set(),
+}
 
 _EXCLUDED_DIRS = {"migrations", "__pycache__"}
 _STATUS_MUTATING_METHODS = {"create", "update", "update_or_create", "bulk_update"}
@@ -105,3 +114,40 @@ class NotificationIsolationTests(SimpleTestCase):
             "notify_reservation_event must be defined only in "
             f"{NOTIFICATION_OWNER}, but found it in: {definers}",
         )
+
+
+def _imported_app_packages(path, tree):
+    """Top-level app packages a module imports, e.g. ``services`` for ``from ..services import x``."""
+    rel_dir = path.relative_to(APP_ROOT).parent.parts
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        module = tuple(node.module.split(".")) if node.module else ()
+        if node.level:
+            parts = rel_dir[: len(rel_dir) - (node.level - 1)] + module
+        elif module[:1] == ("reservations",):
+            parts = module[1:]
+        else:
+            continue
+        if parts:
+            yield node.lineno, parts[0]
+
+
+class LayerDirectionTests(SimpleTestCase):
+    """RULE-3: a layer imports only the layers below it."""
+
+    def test_layers_do_not_depend_upwards(self):
+        violations = {}
+        for path in _all_modules():
+            layer = path.relative_to(APP_ROOT).parts[0]
+            if layer not in LAYER_DEPENDENCIES:
+                continue
+            allowed = LAYER_DEPENDENCIES[layer] | {layer}
+            found = [
+                (lineno, target)
+                for lineno, target in _imported_app_packages(path, _parse(path))
+                if target in LAYER_DEPENDENCIES and target not in allowed
+            ]
+            if found:
+                violations[str(path.relative_to(APP_ROOT))] = found
+        self.assertEqual(violations, {}, f"Layer imports against RULE-3: {violations}")

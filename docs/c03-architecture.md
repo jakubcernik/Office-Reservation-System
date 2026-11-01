@@ -6,7 +6,7 @@ Od AS-IS implementace k přijaté architektuře pro scénář **potvrzení rezer
 - **Scénář:** OP-03 Confirm + OP-05 Approve pro zdroj s `requires_approval = True` (BR-05), včetně odloženého rozhodnutí a souběhu.
 - **Poznámka k baseline:** aplikace navíc realizuje týmové rozhodnutí v0.3 (rezervace jedním krokem). Architektura je proto psaná nad statechartem v0.2 a odchylka v0.3 je vedená jako nález v cross-view kontrole (viz „I. Cross-view kontrola").
 - Related: [`docs/architecture-and-decisions.md`](architecture-and-decisions.md) (AS-IS stack), [`docs/evidence-and-evolution.md`](evidence-and-evolution.md) (evidence).
-- **Baseline odkazů:** soubory a čísla řádků v tomto dokumentu platí pro tag `c03` (commit `cd4d180`). Od commitu `bf66ebb` je kód rozdělený do modulů podle prvků G2 (`services/` = Reservation Management, `availability/` = Availability, `integrations/` = Notification Integration); převodní tabulka je v change recordu „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md). Architektura (G1–G4, ADR-01) se tím nezměnila.
+- **Baseline odkazů:** soubory a čísla řádků v tomto dokumentu platí pro tag `c03` (commit `cd4d180`). Od commitu `bf66ebb` je kód rozdělený do modulů podle prvků G2 (`services/` = Reservation Management, `availability/` = Availability, `integrations/` = Notification Integration); převodní tabulka je v change recordu „modules split by architecture element“ v [`architecture-and-decisions.md`](architecture-and-decisions.md). Po C06 jsou adresáře pojmenované podle vrstev MVC se service layer (`controllers/` = Web, `services/` = Reservation Management + Availability, `integrations/` = Notification Integration, `models/` = Persistence); mapování prvků G2 na vrstvy je v change recordu „layered MVC with a service layer“ tamtéž. Architektura (G1–G4, ADR-01) se tím nezměnila.
 
 ---
 
@@ -443,6 +443,8 @@ OK (viz M — Evidence)
 ```
 
 Druhé pravidlo ze stejného ADR (RULE-2): doručení notifikace smí definovat pouze `reservations/integrations/notifications.py`. Kontrolováno stejným testem.
+
+Po C06 přibylo RULE-3 (směr závislostí mezi vrstvami): `controllers` smí importovat jen `services` a `models`, `services` jen `models` a `integrations`, `integrations` jen `models`, `models` nic z aplikace. Kontrolováno stejným testem (`LayerDirectionTests`).
 
 ---
 

@@ -61,7 +61,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "reservations.web.context_processors.navigation",
+                "reservations.controllers.context_processors.navigation",
             ],
         },
     },

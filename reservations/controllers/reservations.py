@@ -5,16 +5,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from ...availability import current_user_reservations
-from ...models import Reservation
-from ...services import (
+from ..models import Reservation
+from ..services import (
     ReservationError,
     cancel_reservation,
     confirm_reservation,
     create_reservation,
+    current_user_reservations,
     expire_stale_approvals,
 )
-from ..forms import ReservationCreationForm
+from .forms import ReservationCreationForm
 
 
 @login_required

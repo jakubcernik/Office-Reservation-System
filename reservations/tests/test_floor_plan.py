@@ -4,9 +4,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from ..availability import active_resources, available_resources_for_date, floor_plan_spots
 from ..models import Reservation, Resource
-from ..services import create_reservation
+from ..services import active_resources, available_resources_for_date, create_reservation, floor_plan_spots
 
 
 class FloorPlanTests(TestCase):

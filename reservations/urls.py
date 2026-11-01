@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .web import views
+from . import controllers as views
 
 app_name = "reservations"
 

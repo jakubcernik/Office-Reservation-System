@@ -228,3 +228,13 @@ Běhy A a B byly dočasné kontrolní testy (patch `lock_for_allocation`, odebr�
 - Měření C04 běželo na lokálním PostgreSQL 15, ne přímo na Supabase.
 - Kontrola vlastníka při potvrzení je ve view, ne ve službě (C05, odloženo).
 - Notifikace nemají retry (ADR-01, přijatý důsledek).
+
+## Po C06 — reporting baseline (C07/C08)
+
+Změny proti assessed baseline `c06`. Reporting tag: `c08`.
+
+| Změna | Expected ↔ Observed na `c06` | Akce | Evidence |
+| --- | --- | --- | --- |
+| Struktura: vrstvená MVC se service layer | Adresáře byly pojmenované podle prvků C03 (`web/`, `availability/`) | Přejmenování `web/` na `controllers/`, `availability/` přesunuto do `services/`; ADR-01 beze změny; nové pravidlo RULE-3 (směr závislostí) | change record „layered MVC with a service layer“ v [`architecture-and-decisions.md`](architecture-and-decisions.md); `LayerDirectionTests` (ověřeno dočasným modulem `services/` → `controllers`, test selhal) |
+
+**Testy:** `python manage.py test` na SQLite → 67 testů OK (1 přeskočen: měření C04 patří na PostgreSQL).

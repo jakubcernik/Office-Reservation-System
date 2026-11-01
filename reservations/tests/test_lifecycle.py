@@ -3,10 +3,10 @@ from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from ..availability import available_resources_for_date
 from ..models import Reservation, Resource
 from ..services import (
     ReservationError,
+    available_resources_for_date,
     cancel_reservation,
     confirm_reservation,
     create_draft,

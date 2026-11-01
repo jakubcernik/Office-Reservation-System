@@ -21,16 +21,20 @@ This is intentionally a monolithic application. One Python process and one SQLit
 
 ## Application shape
 
-Use one Django project and one main `reservations` app. Keep the initial structure small:
+Use one Django project and one main `reservations` app, layered as MVC with a service layer. A layer imports only the layers below it (RULE-3, `reservations/tests/test_architecture.py`):
 
-- `models/`: users' reservations, desks, parking spots, dates, and statuses.
-- `web/views/`: browser pages and form handling.
-- `web/forms.py`: validation for selecting dates, resources, and actions.
-- `services/`: the few operations that change reservation state.
-- `availability/`: read-only queries for free resources and the floor plan.
-- `integrations/`: the notification boundary.
+| Layer | Package | Content | May import |
+| --- | --- | --- | --- |
+| View | `templates/`, `static/` | server-rendered pages, plain CSS | — |
+| Controller | `controllers/` | request handling (`auth`, `availability`, `reservations`, `approvals`, `api`), `forms.py`, `context_processors.py` | `services`, `models` |
+| Service layer | `services/` | every operation that changes reservation state, allocation rules, permissions, read queries for availability and the floor plan | `models`, `integrations` |
+| Model | `models/` | reservations, desks, parking spots, dates, statuses | — |
+| Integrations | `integrations/` | notification delivery (best-effort) | `models` |
 
-(The first version used flat files `models.py`, `views.py`, `forms.py` and `services.py`; see the change record "modules split by architecture element" below.)
+Controllers read models (forms need `Resource` querysets, views look up a reservation by id) but never change `Reservation.status`; that stays in the service layer (RULE-1).
+
+(The first version used flat files `models.py`, `views.py`, `forms.py` and `services.py`; later layouts are in the change records "modules split by architecture element" and "layered MVC with a service layer" below.)
+
 - `templates/`: server-rendered pages.
 - `static/`: plain CSS.
 - Django admin: resource maintenance and basic user management.
@@ -144,6 +148,21 @@ The `reservations` app outgrew its flat layout: `services.py` held Reservation M
 | `tests_architecture.py` | `tests/test_architecture.py` |
 
 One change inside the code: the allocation checks (active resource, BR-04, BR-02) were written twice, in `confirm_reservation` and in `_apply_approval_decision`. They now live once in `services/rules.py` (`ensure_can_allocate`), and saving as `CONFIRMED` with the DB-index fallback lives once in `services/lifecycle.py` (`allocate`). BR-07 ("approval re-checks the rules") therefore holds by construction, not by keeping two copies equal. Behaviour is unchanged: the same 49 tests pass and no migration was generated.
+
+## Change record: layered MVC with a service layer
+
+After C06 the directories were renamed from C03 elements to layers, so the structure reads the same way as a usual Django MVC application. The C03 decisions are unchanged: one process, one database, and the service layer is still the only owner of `Reservation.status` (ADR-01, RULE-1). The G2 elements map to layers like this:
+
+| C03 element (G2) | Layer | Before | After |
+| --- | --- | --- | --- |
+| Web | Controller | `web/views/*.py` | `controllers/*.py` |
+| Web | Controller | `web/forms.py`, `web/context_processors.py` | `controllers/forms.py`, `controllers/context_processors.py` |
+| Reservation Management | Service layer | `services/` | `services/` (unchanged) |
+| Availability (read model) | Service layer | `availability/queries.py`, `availability/floor_plan.py` | `services/availability.py`, `services/floor_plan.py` |
+| Notification Integration | Integrations | `integrations/notifications.py` | `integrations/notifications.py` (unchanged) |
+| Persistence | Model | `models/` | `models/` (unchanged) |
+
+Availability became part of the service layer because it is only another set of read operations used by the controllers; it still never allocates. The direction of dependencies is now a repeatable check (RULE-3 in `test_architecture.py`: controllers → services → models / integrations, nothing imports upwards). No behaviour changed and no migration was generated.
 
 Part A below and the C03 evidence describe the code as it was at that time; file and line references there point to the old layout and can be followed with the table above.
 

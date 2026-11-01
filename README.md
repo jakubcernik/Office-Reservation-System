@@ -68,7 +68,7 @@ Command:
 python manage.py test reservations.tests.test_walking_skeleton
 ```
 
-Status: defined in C02, implemented in C06 (it was planned for C03 but not done there). Endpoint: `reservations/web/views/api.py`, test class `WalkingSkeletonReservationCreateTests` in `reservations/tests/test_walking_skeleton.py`. It uses the normal session login; a browser client has to send the CSRF token like any other form. Persistence is the configured database (SQLite locally, PostgreSQL when `DATABASE_URL` is set).
+Status: defined in C02, implemented in C06 (it was planned for C03 but not done there). Endpoint: `reservations/controllers/api.py`, test class `WalkingSkeletonReservationCreateTests` in `reservations/tests/test_walking_skeleton.py`. It uses the normal session login; a browser client has to send the CSRF token like any other form. Persistence is the configured database (SQLite locally, PostgreSQL when `DATABASE_URL` is set).
 
 ## Local setup
 
@@ -212,27 +212,29 @@ py manage.py seed_demo_data --demo-user jakub
 
 ## Main app modules
 
-The directories follow the architecture elements from C03 (G2):
+The app is layered as MVC with a service layer; a layer imports only the layers below it (RULE-3):
 
 ```
 reservations/
-├── models/          resource.py, reservation.py
-├── services/        Reservation Management — owns every Reservation lifecycle state change
+├── controllers/     Controller — forms, context processor, request handlers (auth, availability, reservations, approvals, api)
+├── services/        Service layer — owns every Reservation lifecycle state change
 │   ├── lifecycle.py     create / confirm / cancel
 │   ├── approvals.py     approve / reject, pending requests
 │   ├── expiry.py        PENDING_APPROVAL → EXPIRED on read (BR-06)
 │   ├── rules.py         allocation rules shared by confirm and approve (BR-02, BR-04)
 │   ├── permissions.py   who is an office manager
+│   ├── availability.py  read queries: free resources, user's reservations
+│   ├── floor_plan.py    floor plan spots for the availability page
 │   └── errors.py
-├── availability/    read model: free resources, floor plan
-├── integrations/    notifications.py — notification boundary (best-effort delivery)
-├── web/             forms, context processor, views/ (auth, availability, reservations, approvals, api)
+├── models/          Model — resource.py, reservation.py
+├── integrations/    notifications.py — notification delivery (best-effort)
+├── templates/       View — server-rendered pages
 ├── tests/           one test module per unit + test_architecture.py
-├── templates/, static/, migrations/, management/commands/
+├── static/, migrations/, management/commands/
 └── urls.py, admin.py
 ```
 
-Code outside `services/` imports the public API from `reservations.services`, not from its modules.
+Code outside `services/` imports the public API from `reservations.services`, not from its modules. The mapping from the C03 elements to these layers is in the change record "layered MVC with a service layer" in [`docs/architecture-and-decisions.md`](docs/architecture-and-decisions.md).
 
 Architecture rules from C03 are protected by `reservations/tests/test_architecture.py`; see [`docs/c03-architecture.md`](docs/c03-architecture.md).
 

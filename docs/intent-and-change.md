@@ -164,7 +164,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Zdůvodnění / zdroj:** Stejná definice „blokuje“ jako v OP-03 (BR-02). Kdyby dostupnost považovala za blokující i `DRAFT`, uživatel by u zdroje viděl obsazeno, i když si ho ještě nikdo nezajistil.
 
-**Implementace:** `reservations/availability/queries.py` `available_resources_for_date`, `reservations/web/views/availability.py` `availability`, URL `GET /`.
+**Implementace:** `reservations/services/availability.py` `available_resources_for_date`, `reservations/controllers/availability.py` `availability`, URL `GET /`.
 
 ## OP-03 — Potvrzení rezervace (Confirm Reservation)
 
@@ -208,7 +208,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Předpoklad:** Oznámení je dnes jen záznam do logu (`notify_reservation_event`, od C03 v `reservations/integrations/notifications.py`), nikoli skutečná externí služba — architektonický driver pro C03.
 
-**Implementace:** `reservations/services/lifecycle.py` `confirm_reservation` (v transakci, se zámkem řádku rezervace a zdroje), `reservations/web/views/reservations.py` `confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
+**Implementace:** `reservations/services/lifecycle.py` `confirm_reservation` (v transakci, se zámkem řádku rezervace a zdroje), `reservations/controllers/reservations.py` `confirm_reservation_view`, URL `POST /reservations/<pk>/confirm/`.
 
 ## OP-04 — Zrušení rezervace (Cancel Reservation)
 
@@ -246,7 +246,7 @@ Kde se co nachází (mapování na zadání C02):
 
 **Předpoklad:** Časová hranice rušení se nevyhodnocuje, protože celodenní rezervace nemá definovaný čas začátku (přijaté zjednodušení, viz BR-01 a BR-03).
 
-**Implementace:** `reservations/services/lifecycle.py` `cancel_reservation`, `reservations/web/views/reservations.py` `cancel_reservation_view`, URL `POST /reservations/<pk>/cancel/`.
+**Implementace:** `reservations/services/lifecycle.py` `cancel_reservation`, `reservations/controllers/reservations.py` `cancel_reservation_view`, URL `POST /reservations/<pk>/cancel/`.
 
 ## Doménová pravidla a invarianty
 
@@ -269,6 +269,7 @@ Pravidla platí napříč operacemi, proto jsou definovaná **jen zde** a jednot
 > *Vynucení:* `user_has_confirmed_desk` uvnitř `ensure_can_allocate` (`reservations/services/rules.py`), volané při potvrzení i schválení.
 > *Rozsah (upřesněno v C06):* pravidlo je podmínka **v okamžiku potvrzení / schválení**. Pozdější zrušení stolu už potvrzené parkovací místo neruší; nový stav se pak kontroluje jen u dalších potvrzení a schválení (proto OP-05 odmítne schválit parkování po zrušení stolu).
 > *Neznámá:* C01 zmiňuje i variantu „nebo současně v jedné transakci vytváří“ — aplikace nepotvrzuje více rezervací najednou, proto tato část zatím nemá chování. TBD pro případ přidání košíku.
+
 
 ## Kontrola přijetí požadavků
 
@@ -297,7 +298,7 @@ Otázky ze zadání jsme neopisovali pod každý požadavek; odpovědi platí pr
 | Diagram případů užití vs. text | **V pořádku.** Čtyři cíle pro čtyři operace, žádný cíl bez specifikovaného chování. |
 | Požadavek vs. návrhové rozhodnutí | **Rozlišeno.** Použití PostgreSQL (Supabase) není požadavek na chování, ale architektonické rozhodnutí s vlastním záznamem v `docs/architecture-and-decisions.md`. Specifikace žádnou technologii nepředepisuje. |
 | Nejistota vs. vymyšlená přesnost | Kapacita zůstává TBD. Konkrétní hodnoty (např. lhůta schválení v části B) pocházejí z rozhodnutí týmu, ne z odhadu nástroje. |
-| Dokumentace vs. realita | **Nalezený nesoulad:** `README.md` uvádí test `WalkingSkeletonReservationCreateTests` z definice CP1, který v repu zatím není. Podle README je jeho implementace plánovaná na C03 — do té doby jde o známý rozdíl, ne o chybějící prvek C02. *Vyřešeno v C06:* endpoint i test existují (`reservations/web/views/api.py`, `reservations/tests/test_walking_skeleton.py`). |
+| Dokumentace vs. realita | **Nalezený nesoulad:** `README.md` uvádí test `WalkingSkeletonReservationCreateTests` z definice CP1, který v repu zatím není. Podle README je jeho implementace plánovaná na C03 — do té doby jde o známý rozdíl, ne o chybějící prvek C02. *Vyřešeno v C06:* endpoint i test existují (`reservations/web/views/api.py`, po C06 `reservations/controllers/api.py`, `reservations/tests/test_walking_skeleton.py`). |
 
 ## 9a Diagram případů užití — aktéři a cíle
 
@@ -509,7 +510,7 @@ Mění se jen to, co změna skutečně zasahuje. Vše ostatní platí z v0.1.
 
 **Zdůvodnění / zdroj:** Zadání změny C02 („schválení může být opožděno, zamítnuto nebo může vypršet“). Schválení je nový okamžik alokace, proto se v něm pravidla ověřují znovu (BR-07) — mezi požádáním a rozhodnutím se totiž stav světa mohl změnit.
 
-**Implementace:** `reservations/services/approvals.py` `decide_approval` (schválit/zamítnout), `reservations/services/expiry.py` `expire_stale_approvals`, `reservations/web/views/approvals.py`, URL `GET /approvals/` a `POST /approvals/<pk>/`.
+**Implementace:** `reservations/services/approvals.py` `decide_approval` (schválit/zamítnout), `reservations/services/expiry.py` `expire_stale_approvals`, `reservations/controllers/approvals.py`, URL `GET /approvals/` a `POST /approvals/<pk>/`.
 
 ### Aktualizovaný stavový diagram (v0.2)
 

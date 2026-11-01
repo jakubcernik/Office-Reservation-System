@@ -3,15 +3,15 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
-from ...availability import (
+from ..services import (
     VIEWBOX,
     active_resources,
     available_resources_for_date,
     current_user_reservations,
+    expire_stale_approvals,
     floor_plan_spots,
 )
-from ...services import expire_stale_approvals
-from ..forms import AvailabilityForm, ReservationCreationForm
+from .forms import AvailabilityForm, ReservationCreationForm
 
 
 @login_required

@@ -3,7 +3,7 @@ from django.contrib.auth import login
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 
-from ..forms import RegistrationForm
+from .forms import RegistrationForm
 
 
 def register(request: HttpRequest) -> HttpResponse:
